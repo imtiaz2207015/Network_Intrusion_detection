@@ -1,0 +1,30 @@
+.au{min-height:100vh;display:grid;place-items:center;padding:20px;color:#e6eaf5;font-family:Inter,system-ui,sans-serif;
+  background:radial-gradient(800px 500px at 85% 10%,rgba(139,92,246,.28),transparent 60%),
+             radial-gradient(700px 500px at 10% 90%,rgba(34,211,238,.18),transparent 60%),#070b1a}
+.au-box{width:100%;max-width:400px;padding:34px;border-radius:20px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(12px);box-shadow:0 0 50px rgba(139,92,246,.18)}
+.au-logo{font-size:22px;font-weight:700;text-align:center;display:block;margin-bottom:18px;color:#e6eaf5;text-decoration:none}
+.au-logo span{color:#22d3ee}
+.au-box h2{margin:0;font-size:26px;text-align:center}
+.au-sub{color:#8b93ad;text-align:center;margin:6px 0 24px;font-size:14px}
+.au-input{width:100%;box-sizing:border-box;padding:13px 16px;margin-bottom:14px;border-radius:12px;font-size:15px;
+  background:rgba(7,11,26,.7);border:1px solid rgba(255,255,255,.12);color:#e6eaf5;outline:none;transition:.2s}
+.au-input::placeholder{color:#6b738c}
+.au-input:focus{border-color:#22d3ee;box-shadow:0 0 16px rgba(34,211,238,.3)}
+.au-err{color:#f87171;font-size:13px;margin:0 0 12px}
+.au-btn{width:100%;padding:13px;border:0;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;color:#050816;
+  background:linear-gradient(90deg,#22d3ee,#8b5cf6);box-shadow:0 0 26px rgba(34,211,238,.3);transition:.2s}
+.au-btn:hover{transform:translateY(-2px);box-shadow:0 0 34px rgba(139,92,246,.5)}
+.au-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.au-foot{color:#8b93ad;font-size:14px;margin:18px 0 0;text-align:center}
+.au-foot a{color:#22d3ee;text-decoration:none}.au-foot a:hover{text-decoration:underline}
+.au-pass{position:relative;margin-bottom:14px}
+.au-pass .au-input{margin-bottom:0;padding-right:70px}
+.au-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;
+  color:#8b93ad;font-size:13px;font-weight:600;padding:6px 8px;border-radius:8px}
+.au-eye:hover{color:#22d3ee}
+.au-meter{display:flex;gap:6px;margin:-4px 0 6px}
+.au-meter i{flex:1;height:4px;border-radius:4px;background:rgba(255,255,255,.1);transition:.3s}
+.au-hint{font-size:12px;color:#8b93ad;margin:0 0 14px}
+.au-err{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}

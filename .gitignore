@@ -1,0 +1,9 @@
+﻿MachineLearningCVE/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pkl
+*.joblib
+.env
+node_modules/

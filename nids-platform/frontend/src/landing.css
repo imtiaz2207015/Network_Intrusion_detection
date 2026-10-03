@@ -1,0 +1,53 @@
+.lp{--bg:#070b1a;--cyan:#22d3ee;--violet:#8b5cf6;--text:#e6eaf5;--muted:#8b93ad;
+  background:radial-gradient(900px 500px at 80% 10%,rgba(139,92,246,.25),transparent 60%),
+             radial-gradient(800px 500px at 10% 30%,rgba(34,211,238,.15),transparent 60%),var(--bg);
+  color:var(--text);min-height:100vh;font-family:Inter,system-ui,sans-serif}
+.lp a{text-decoration:none;color:inherit}
+.lp-nav{display:flex;align-items:center;justify-content:space-between;padding:20px 8%}
+.lp-logo{font-size:22px;font-weight:700}.lp-logo span{color:var(--cyan)}
+.lp-links{display:flex;gap:28px;color:var(--muted);font-size:15px}
+.lp-links a:hover{color:var(--cyan)}
+.lp-signin{border:1px solid var(--cyan);color:var(--cyan);padding:8px 20px;border-radius:999px;font-size:14px}
+.lp-signin:hover{background:rgba(34,211,238,.12);box-shadow:0 0 18px rgba(34,211,238,.4)}
+.lp-hero{display:flex;align-items:center;justify-content:space-between;gap:40px;padding:70px 8% 60px}
+.lp-hero h1{font-size:56px;line-height:1.1;margin:0 0 18px}
+.lp-hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lp-hero p{color:var(--muted);font-size:18px;max-width:520px;margin:0 0 30px}
+.lp-btns{display:flex;gap:14px}
+.lp-btn{padding:13px 28px;border-radius:12px;font-weight:600}
+.lp-btn.primary{background:linear-gradient(90deg,var(--cyan),var(--violet));color:#050816;box-shadow:0 0 28px rgba(34,211,238,.35)}
+.lp-btn.ghost{border:1px solid rgba(255,255,255,.2)}
+.lp-btn.ghost:hover{border-color:var(--violet);box-shadow:0 0 18px rgba(139,92,246,.4)}
+.lp-shield{width:340px;max-width:100%;filter:drop-shadow(0 0 40px rgba(139,92,246,.6));animation:float 5s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-14px)}}
+.lp-stats{display:flex;justify-content:space-around;margin:0 8%;padding:28px;border-radius:18px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(10px)}
+.lp-stat b{display:block;font-size:34px;color:var(--cyan)}.lp-stat span{color:var(--muted);font-size:14px}
+.lp-sec{padding:80px 8% 0}.lp-sec h2{font-size:34px;text-align:center;margin:0 0 8px}
+.lp-sec .sub{text-align:center;color:var(--muted);margin-bottom:40px}
+.lp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+.lp-card{padding:26px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);transition:.25s}
+.lp-card:hover{border-color:var(--cyan);box-shadow:0 0 26px rgba(34,211,238,.2);transform:translateY(-4px)}
+.lp-card h3{margin:0 0 8px;color:var(--cyan)}.lp-card p{margin:0;color:var(--muted);font-size:15px;line-height:1.5}
+.lp-step b{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:50%;margin-bottom:12px;
+  background:linear-gradient(135deg,var(--cyan),var(--violet));color:#050816}
+.lp-foot{margin-top:90px;padding:28px 8%;text-align:center;color:var(--muted);border-top:1px solid rgba(255,255,255,.08);font-size:14px}
+@media(max-width:800px){.lp-hero{flex-direction:column;text-align:center}.lp-hero h1{font-size:38px}.lp-links{display:none}.lp-btns{justify-content:center}}
+.lp-nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(7,11,26,.72);
+  border-bottom:1px solid rgba(255,255,255,.06)}
+.lp-right{display:flex;align-items:center;gap:12px}
+.lp-burger{display:none;background:none;border:1px solid rgba(255,255,255,.2);color:#e6eaf5;font-size:20px;
+  border-radius:10px;padding:4px 11px;cursor:pointer}
+.lp-sec{scroll-margin-top:80px}
+.reveal{opacity:0;transform:translateY(24px);
+  transition:opacity .6s,transform .6s,border-color .25s,box-shadow .25s}
+.reveal.show{opacity:1;transform:none}
+.lp-card.show:hover{transform:translateY(-4px)}
+.lp-links a{position:relative}
+.lp-foot a{color:var(--cyan)}
+@media(max-width:800px){
+  .lp-burger{display:block}
+  .lp-links.open{display:flex;flex-direction:column;gap:18px;position:absolute;top:100%;left:0;right:0;
+    padding:20px 5%;background:rgba(7,11,26,.97);border-bottom:1px solid rgba(255,255,255,.08)}
+  .lp-btns{flex-wrap:wrap}
+}
