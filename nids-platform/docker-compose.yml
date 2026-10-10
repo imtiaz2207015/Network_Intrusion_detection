@@ -1,4 +1,20 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   gateway:
     image: nginx:alpine
     ports:
@@ -17,17 +33,39 @@ services:
     build: ./auth-service
     environment:
       - JWT_SECRET=${JWT_SECRET}
-    volumes:
-      - auth_data:/data
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/auth_db
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_APP_PASSWORD=${SMTP_APP_PASSWORD}
+      - FRONTEND_URL=${FRONTEND_URL}
+    depends_on:
+      db:
+        condition: service_healthy
 
   alert:
     build: ./alert-service
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - SENSOR_KEY=${SENSOR_KEY}
-    volumes:
-      - alert_data:/data
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/alerts_db
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_APP_PASSWORD=${SMTP_APP_PASSWORD}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+      - EMAIL_COOLDOWN=${EMAIL_COOLDOWN:-300}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  analytics:
+    build: ./analytics-service
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/alerts_db
+      - SENSOR_TZ=${SENSOR_TZ:-Asia/Dhaka}
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
-  auth_data:
-  alert_data:
+  pg_data:

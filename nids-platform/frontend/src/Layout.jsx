@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { ThemeToggle } from './ui';
 import { useCriticalNotifier } from './notify';
+import SensorBadge from './SensorBadge';
 
 const Icon = ({ d }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -50,6 +51,7 @@ export default function Layout() {
         <header className="topbar">
           <button className="menu-btn" onClick={() => setOpen(true)} aria-label="Menu">☰</button>
           <span className="page-title">{title}</span>
+          <SensorBadge />
           <span className="uname">{user.username}</span>
           <span className="badge">{user.role}</span>
           <ThemeToggle />

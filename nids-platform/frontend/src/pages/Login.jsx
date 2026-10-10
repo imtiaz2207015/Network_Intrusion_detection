@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import '../auth.css';
+import GoogleButton from '../GoogleButton';
+import AuthShell from '../AuthShell';
 
 export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
@@ -17,7 +18,7 @@ export default function Login() {
     setError('');
     setBusy(true);
     try {
-      await login(username, password);
+      await login(email.trim(), password);
       nav('/');
     } catch (err) {
       setError(err.message);
@@ -27,13 +28,12 @@ export default function Login() {
   }
 
   return (
-    <div className="au">
-      <form className="au-box" onSubmit={submit}>
-        <Link to="/home" className="au-logo">NIDS<span>.</span>AI</Link>
-        <h2>Welcome back</h2>
-        <p className="au-sub">Sign in to your dashboard</p>
-        <input className="au-input" placeholder="Username" value={username} autoFocus
-          autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
+    <AuthShell title="Welcome back" sub="Sign in to monitor your network.">
+      <GoogleButton onSuccess={() => nav('/')} onError={setError} />
+      <div className="au-or">or continue with email</div>
+      <form onSubmit={submit}>
+        <input className="au-input" type="email" placeholder="Email" value={email}
+          autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
         <div className="au-pass">
           <input className="au-input" type={show ? 'text' : 'password'} placeholder="Password"
             value={password} autoComplete="current-password"
@@ -42,13 +42,13 @@ export default function Login() {
             {show ? 'Hide' : 'Show'}
           </button>
         </div>
-        {error && <p className="au-err" key={error}>{error}</p>}
-        <button className="au-btn" disabled={busy || !username || !password}>
+        <p className="au-forgot"><Link to="/forgot-password">Forgot password?</Link></p>
+        {error && <p className="au-err">{error}</p>}
+        <button className="au-btn" disabled={busy || !email || !password}>
           {busy ? 'Signing in...' : 'Sign in'}
         </button>
-        <p className="au-foot">No account? <Link to="/register">Register</Link></p>
-        <p className="au-foot" style={{ marginTop: 8 }}><Link to="/home">← Back to home</Link></p>
       </form>
-    </div>
+      <p className="au-foot">No account? <Link to="/register">Create one</Link></p>
+    </AuthShell>
   );
 }

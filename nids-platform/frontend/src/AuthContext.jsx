@@ -7,12 +7,21 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
 
-  async function login(username, password) {
-    const data = await api('/login', { method: 'POST', body: { username, password } });
+  function save(data) {
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
+  }
+
+  async function login(username, password) {
+    const data = await api('/login', { method: 'POST', body: { username, password } });
+    save(data);
+  }
+
+  async function googleLogin(credential) {
+    const data = await api('/google', { method: 'POST', body: { credential } });
+    save(data);
   }
 
   function logout() {
@@ -23,7 +32,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, googleLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,22 +1,37 @@
-import { usePolling, severity, sevColor } from '../utils';
+import { useState, useEffect } from 'react';
+import { severity, sevColor } from '../utils';
+import { useAuth } from '../AuthContext';
+import { analyticsApi, downloadReport } from '../api';
 
-function perMinute(alerts, span = 30) {
-  const ts = alerts
-    .map((a) => Math.floor(Date.parse(a.time.replace(' ', 'T') + 'Z') / 60000))
-    .filter((n) => !isNaN(n));
-  if (!ts.length) return [];
-  const end = Math.max(...ts);
-  const out = [];
-  for (let m = end - span + 1; m <= end; m++) {
-    out.push({ label: new Date(m * 60000).toISOString().slice(11, 16), n: ts.filter((x) => x === m).length });
-  }
-  return out;
+const RANGES = [[1, 'Last hour'], [6, 'Last 6 hours'], [24, 'Last 24 hours'], [168, 'Last 7 days'], [720, 'Last 30 days']];
+
+function useSummary(hours) {
+  const { token, logout } = useAuth();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    async function load() {
+      try {
+        const d = await analyticsApi(`/summary?hours=${hours}`, { token });
+        if (alive) { setData(d); setError(''); }
+      } catch (e) {
+        if (e.status === 401) logout();
+        else if (alive) setError(e.message);
+      }
+    }
+    load();
+    const id = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, [hours, token]);
+  return { data, error };
 }
 
-function top(items, n = 5) {
-  const map = {};
-  items.forEach((x) => { if (x && x !== '-') map[x] = (map[x] || 0) + 1; });
-  return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n);
+function tlLabel(key, bucket) {
+  if (bucket === 'minute') return key.slice(11);
+  if (bucket === 'hour') return key.slice(11) + ':00';
+  return key.slice(5);
 }
 
 function Donut({ data }) {
@@ -36,7 +51,7 @@ function Donut({ data }) {
         offset += len;
         return el;
       })}
-      <text x="100" y="98" textAnchor="middle" fill="#e6eaf5" fontSize="28" fontWeight="700">{total === 1 && !data.length ? 0 : total}</text>
+      <text x="100" y="98" textAnchor="middle" fill="#e6eaf5" fontSize="28" fontWeight="700">{data.length ? total : 0}</text>
       <text x="100" y="118" textAnchor="middle" fill="#8b93ad" fontSize="11">alerts</text>
     </svg>
   );
@@ -44,7 +59,7 @@ function Donut({ data }) {
 
 function BarList({ rows, color = 'var(--accent)' }) {
   const max = Math.max(1, ...rows.map(([, n]) => n));
-  if (!rows.length) return <p style={{ color: 'var(--muted)' }}>No data yet.</p>;
+  if (!rows.length) return <p style={{ color: 'var(--muted)' }}>No data in this range.</p>;
   return rows.map(([name, n]) => (
     <div key={name} style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
@@ -58,21 +73,55 @@ function BarList({ rows, color = 'var(--accent)' }) {
 }
 
 export default function Analytics() {
-  const stats = usePolling('/stats');
-  const recent = usePolling('/?limit=200');
+  const { token } = useAuth();
+  const [hours, setHours] = useState(() => Number(sessionStorage.getItem('an_hours')) || 24);
+  const { data, error } = useSummary(hours);
+  const [busy, setBusy] = useState(false);
+  const [dlError, setDlError] = useState('');
 
-  if (stats.error) return <p style={{ color: 'var(--danger)' }}>{stats.error}</p>;
-  if (!stats.data || !recent.data) return <p style={{ color: 'var(--muted)' }}>Loading...</p>;
+  function pickRange(h) {
+    setHours(h);
+    sessionStorage.setItem('an_hours', String(h));
+  }
 
-  const { total, counts, sources } = stats.data;
-  const alerts = recent.data.alerts;
-  const types = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  async function onDownload() {
+    setBusy(true);
+    setDlError('');
+    try {
+      await downloadReport(token, hours);
+    } catch (e) {
+      setDlError(e.message);
+    }
+    setBusy(false);
+  }
 
+  const header = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+      <h2>Analytics</h2>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select className="input" style={{ width: 170 }} value={hours}
+          onChange={(e) => pickRange(Number(e.target.value))}>
+          {RANGES.map(([h, l]) => <option key={h} value={h}>{l}</option>)}
+        </select>
+        <button onClick={onDownload} disabled={busy}
+          style={{ padding: '10px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600,
+                   color: '#06101f', background: 'linear-gradient(90deg, var(--accent), var(--accent-2))' }}>
+          {busy ? 'Generating...' : 'Download PDF report'}
+        </button>
+      </div>
+      {dlError && <div style={{ color: 'var(--danger)', fontSize: 12, width: '100%' }}>{dlError}</div>}
+    </div>
+  );
+
+  if (error) return <div style={{ display: 'grid', gap: 16 }}>{header}<p style={{ color: 'var(--danger)' }}>{error}</p></div>;
+  if (!data) return <div style={{ display: 'grid', gap: 16 }}>{header}<p style={{ color: 'var(--muted)' }}>Loading...</p></div>;
+
+  const types = Object.entries(data.by_type).sort((a, b) => b[1] - a[1]);
   const sevMap = {};
   types.forEach(([t, n]) => { const s = severity(t); sevMap[s] = (sevMap[s] || 0) + n; });
   const sevData = Object.entries(sevMap).map(([label, n]) => ({ label, n, color: sevColor[label] }));
 
-  const bars = perMinute(alerts);
+  const bars = data.timeline.map((b) => ({ label: tlLabel(b.hour, data.bucket), n: b.count }));
   const maxBar = Math.max(1, ...bars.map((b) => b.n));
   const W = 600, H = 160;
   const pts = bars.map((b, i) => [
@@ -82,22 +131,19 @@ export default function Analytics() {
   const line = pts.map((p) => p.join(',')).join(' ');
   const area = pts.length ? `0,${H} ${line} ${W},${H}` : '';
 
-  const topPorts = top(alerts.map((a) => a.dport));
-  const topTargets = top(alerts.map((a) => a.dst));
-
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <h2>Analytics</h2>
+      {header}
 
       <div className="grid">
-        <div className="card"><div className="stat-label">Total alerts</div><div className="stat-value">{total}</div></div>
+        <div className="card"><div className="stat-label">Total alerts</div><div className="stat-value">{data.total}</div></div>
         <div className="card"><div className="stat-label">Attack types</div><div className="stat-value">{types.length}</div></div>
-        <div className="card"><div className="stat-label">Unique sources</div><div className="stat-value">{sources.length}</div></div>
-        <div className="card"><div className="stat-label">Unique targets</div><div className="stat-value">{topTargets.length ? new Set(alerts.map((a) => a.dst)).size : 0}</div></div>
+        <div className="card"><div className="stat-label">Unique sources</div><div className="stat-value">{data.unique_sources}</div></div>
+        <div className="card"><div className="stat-label">Unique targets</div><div className="stat-value">{data.unique_targets}</div></div>
       </div>
 
       <div className="card">
-        <div className="stat-label" style={{ marginBottom: 12 }}>Alert activity (last 30 minutes of activity)</div>
+        <div className="stat-label" style={{ marginBottom: 12 }}>Alert activity (per {data.bucket})</div>
         {bars.length ? (
           <>
             <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} preserveAspectRatio="none">
@@ -114,7 +160,7 @@ export default function Analytics() {
               <span>{bars[0].label}</span><span>{bars[bars.length - 1].label}</span>
             </div>
           </>
-        ) : <p style={{ color: 'var(--muted)' }}>No data yet.</p>}
+        ) : <p style={{ color: 'var(--muted)' }}>No alerts in this range.</p>}
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
@@ -142,11 +188,11 @@ export default function Analytics() {
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
         <div className="card">
           <div className="stat-label" style={{ marginBottom: 12 }}>Top attacker sources</div>
-          <BarList rows={sources.slice(0, 5)} color="var(--danger)" />
+          <BarList rows={data.sources} color="var(--danger)" />
         </div>
         <div className="card">
           <div className="stat-label" style={{ marginBottom: 12 }}>Most targeted ports</div>
-          <BarList rows={topPorts} color="var(--accent-2)" />
+          <BarList rows={data.top_ports} color="var(--accent-2)" />
         </div>
       </div>
     </div>

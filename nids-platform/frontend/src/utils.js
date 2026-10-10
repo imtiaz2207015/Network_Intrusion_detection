@@ -38,3 +38,58 @@ export function usePolling(path, ms = 5000) {
 
   return { data, error };
 }
+
+export const advice = {
+  PortScan: {
+    what: 'A host probed many ports in a short time to find open services.',
+    risk: 'Usually the first step before a real attack.',
+    actions: ['Block or rate-limit the source IP on the firewall.',
+              'Close ports and services you do not need.',
+              'Watch the same source for follow-up brute force or exploit attempts.'],
+  },
+  BruteForce: {
+    what: 'Many rapid connection attempts to a login service (SSH, RDP, FTP, web).',
+    risk: 'The attacker may be guessing passwords.',
+    actions: ['Block the source IP temporarily.',
+              'Enable account lockout and strong passwords or key-based login.',
+              'Move the service off its default port or restrict it by IP / VPN.'],
+  },
+  'DoS/SYN Flood': {
+    what: 'A flood of TCP connection requests meant to exhaust the target.',
+    risk: 'The service can become slow or unreachable.',
+    actions: ['Enable SYN cookies on the target server.',
+              'Rate-limit new connections per source at the firewall.',
+              'Block the source, or ask the ISP for upstream filtering.'],
+  },
+  'UDP Flood': {
+    what: 'A high volume of UDP packets aimed at a host or port.',
+    risk: 'Bandwidth and CPU exhaustion; may hide other attacks.',
+    actions: ['Rate-limit UDP from the source.',
+              'Block unused UDP ports.',
+              'Check whether it is normal streaming traffic (video, VoIP) before blocking.'],
+  },
+  'ICMP Flood': {
+    what: 'A large number of ping packets sent to a host.',
+    risk: 'Network congestion or denial of service.',
+    actions: ['Rate-limit ICMP echo requests.',
+              'Block inbound ICMP from untrusted networks.',
+              'Block the source IP.'],
+  },
+  'ML-Detected': {
+    what: 'The machine-learning model flagged this flow as malicious based on its traffic features.',
+    risk: 'Could be a real attack or an unusual-but-harmless flow.',
+    actions: ['Check the source IP and destination port for context.',
+              'Compare with rule-based alerts from the same source.',
+              'If repeated, block the source and mark the alert as investigating.'],
+  },
+};
+
+export function getAdvice(type) {
+  const key = Object.keys(advice).find((k) => (type || '').toLowerCase().startsWith(k.toLowerCase()));
+  return key ? advice[key] : {
+    what: 'Suspicious network activity was detected.',
+    risk: 'Unknown, so investigate.',
+    actions: ['Check the source IP and destination.', 'Block the source if it is unexpected.'],
+  };
+}
+

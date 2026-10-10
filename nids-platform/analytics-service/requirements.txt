@@ -2,3 +2,5 @@ flask
 PyJWT
 gunicorn
 psycopg2-binary
+reportlab
+tzdata
