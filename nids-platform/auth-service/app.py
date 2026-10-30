@@ -302,3 +302,30 @@ def set_role(uid):
     query("UPDATE users SET role=%s WHERE id=%s", (role, uid))
     db().commit()
     return jsonify(ok=True)
+
+@app.post("/change-password")
+@auth_required()
+def change_password():
+    d = request.get_json(silent=True) or {}
+    current = d.get("current_password") or ""
+    new = d.get("new_password") or ""
+    u = query("SELECT * FROM users WHERE id=%s", (int(g.user["sub"]),)).fetchone()
+    if not u:
+        return jsonify(error="User not found"), 404
+    if u["locked_until"] > time.time():
+        return jsonify(error="Too many wrong attempts. Try again in a few minutes."), 423
+    if not check_password_hash(u["password_hash"], current):
+        fails = u["failed_attempts"] + 1
+        locked = time.time() + LOCK_SECONDS if fails >= MAX_FAILS else 0
+        query("UPDATE users SET failed_attempts=%s, locked_until=%s WHERE id=%s",
+              (0 if locked else fails, locked, u["id"]))
+        db().commit()
+        return jsonify(error="Current password is incorrect"), 400
+    if not valid_password(new):
+        return jsonify(error="Password: at least 8 characters with letters and numbers"), 400
+    if check_password_hash(u["password_hash"], new):
+        return jsonify(error="New password must be different from the current one"), 400
+    query("UPDATE users SET password_hash=%s, failed_attempts=0, locked_until=0 WHERE id=%s",
+          (generate_password_hash(new), u["id"]))
+    db().commit()
+    return jsonify(ok=True)    

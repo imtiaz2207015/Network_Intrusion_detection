@@ -1,0 +1,342 @@
+{
+ "dataset": "CICIDS2017",
+ "split": "80/20 stratified, random_state=42",
+ "models": [
+  {
+   "key": "binary78",
+   "title": "Binary Random Forest (78 features)",
+   "description": "Full-feature benchmark model: BENIGN vs ATTACK.",
+   "test_rows": 565576,
+   "n_features": 78,
+   "excluded_rows": 0,
+   "accuracy": 0.9988825551296378,
+   "precision": 0.9949467395290182,
+   "recall": 0.9993980828489547,
+   "f1": 0.9971674435281462,
+   "macro_f1": 0.9982357164074337,
+   "classes": [
+    "BENIGN",
+    "ATTACK"
+   ],
+   "confusion": [
+    [
+     453700,
+     565
+    ],
+    [
+     67,
+     111244
+    ]
+   ],
+   "per_class": [
+    {
+     "name": "BENIGN",
+     "precision": 0.9998523471296943,
+     "recall": 0.9987562325955114,
+     "f1": 0.9993039892867212,
+     "support": 454265
+    },
+    {
+     "name": "ATTACK",
+     "precision": 0.9949467395290182,
+     "recall": 0.9993980828489547,
+     "f1": 0.9971674435281462,
+     "support": 111311
+    }
+   ]
+  },
+  {
+   "key": "binary23",
+   "title": "Live Binary Model (23 features)",
+   "description": "Deployed in the live sensor; uses only features extractable from live packets.",
+   "test_rows": 565576,
+   "n_features": 23,
+   "excluded_rows": 0,
+   "accuracy": 0.9971445040100712,
+   "precision": 0.986180793163969,
+   "recall": 0.9994969050677831,
+   "f1": 0.9927941996653653,
+   "macro_f1": 0.9955068286500166,
+   "classes": [
+    "BENIGN",
+    "ATTACK"
+   ],
+   "confusion": [
+    [
+     452706,
+     1559
+    ],
+    [
+     56,
+     111255
+    ]
+   ],
+   "per_class": [
+    {
+     "name": "BENIGN",
+     "precision": 0.9998763147083899,
+     "recall": 0.9965680825069068,
+     "f1": 0.998219457634668,
+     "support": 454265
+    },
+    {
+     "name": "ATTACK",
+     "precision": 0.986180793163969,
+     "recall": 0.9994969050677831,
+     "f1": 0.9927941996653653,
+     "support": 111311
+    }
+   ]
+  },
+  {
+   "key": "multiclass",
+   "title": "Attack-Type Classifier (11 classes)",
+   "description": "Runs after an ATTACK is flagged and names the attack type.",
+   "test_rows": 111299,
+   "n_features": 78,
+   "excluded_rows": 13,
+   "accuracy": 0.9985714157359904,
+   "precision": 0.9986466182583772,
+   "recall": 0.9985714157359904,
+   "f1": 0.9985989694727857,
+   "macro_f1": 0.9429103127030004,
+   "classes": [
+    "Bot",
+    "DDoS",
+    "DoS GoldenEye",
+    "DoS Hulk",
+    "DoS Slowhttptest",
+    "DoS slowloris",
+    "FTP-Patator",
+    "PortScan",
+    "SSH-Patator",
+    "Web Attack - Brute Force",
+    "Web Attack - XSS"
+   ],
+   "confusion": [
+    [
+     391,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     25604,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     2055,
+     2,
+     2,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     4,
+     7,
+     46010,
+     0,
+     0,
+     0,
+     2,
+     0,
+     2,
+     0
+    ],
+    [
+     0,
+     0,
+     2,
+     0,
+     1090,
+     8,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0,
+     2,
+     1154,
+     0,
+     0,
+     0,
+     2,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1586,
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0,
+     0,
+     0,
+     6,
+     0,
+     0,
+     0,
+     31754,
+     0,
+     0,
+     1
+    ],
+    [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1180,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     231,
+     70
+    ],
+    [
+     0,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     0,
+     0,
+     43,
+     85
+    ]
+   ],
+   "per_class": [
+    {
+     "name": "Bot",
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0,
+     "support": 391
+    },
+    {
+     "name": "DDoS",
+     "precision": 0.999843798812871,
+     "recall": 0.9999609451279047,
+     "f1": 0.9999023685392381,
+     "support": 25605
+    },
+    {
+     "name": "DoS GoldenEye",
+     "precision": 0.994675701839303,
+     "recall": 0.9980573093734822,
+     "f1": 0.9963636363636363,
+     "support": 2059
+    },
+    {
+     "name": "DoS Hulk",
+     "precision": 0.9997827031725337,
+     "recall": 0.9996740901683867,
+     "f1": 0.9997283937204628,
+     "support": 46025
+    },
+    {
+     "name": "DoS Slowhttptest",
+     "precision": 0.9963436928702011,
+     "recall": 0.990909090909091,
+     "f1": 0.9936189608021878,
+     "support": 1100
+    },
+    {
+     "name": "DoS slowloris",
+     "precision": 0.9922613929492692,
+     "recall": 0.9956859361518551,
+     "f1": 0.9939707149009475,
+     "support": 1159
+    },
+    {
+     "name": "FTP-Patator",
+     "precision": 1.0,
+     "recall": 0.9993698802772527,
+     "f1": 0.9996848408446265,
+     "support": 1587
+    },
+    {
+     "name": "PortScan",
+     "precision": 0.9999370197757904,
+     "recall": 0.9997796039167532,
+     "f1": 0.9998583056504557,
+     "support": 31761
+    },
+    {
+     "name": "SSH-Patator",
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0,
+     "support": 1180
+    },
+    {
+     "name": "Web Attack - Brute Force",
+     "precision": 0.8309352517985612,
+     "recall": 0.7649006622516556,
+     "f1": 0.7965517241379311,
+     "support": 302
+    },
+    {
+     "name": "Web Attack - XSS",
+     "precision": 0.5414012738853503,
+     "recall": 0.6538461538461539,
+     "f1": 0.5923344947735192,
+     "support": 130
+    }
+   ]
+  }
+ ]
+}
