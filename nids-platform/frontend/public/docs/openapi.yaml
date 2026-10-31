@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: NIDS.AI REST API
+  version: "1.0"
+  description: Auth, Alerts and Analytics services behind the nginx gateway. Log in with POST /api/auth/login, copy the token, then click Authorize and paste it.
+servers:
+  - url: /
+tags:
+  - name: Auth
+  - name: Alerts
+  - name: Analytics
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+    sensorKey: {type: apiKey, in: header, name: X-Service-Key}
+paths:
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Create an account (the first user becomes admin)
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [username, email, password], properties: {username: {type: string}, email: {type: string}, password: {type: string}}}}}}
+      responses: {"201": {description: Created}, "400": {description: Validation error}, "409": {description: Username or email already exists}}
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive a JWT
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [username, password], properties: {username: {type: string, description: Username or email}, password: {type: string}}}}}}
+      responses: {"200": {description: Token and user}, "401": {description: Wrong email or password}, "423": {description: Account locked}}
+  /api/auth/google:
+    post:
+      tags: [Auth]
+      summary: Log in with a Google credential
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [credential], properties: {credential: {type: string}}}}}}
+      responses: {"200": {description: Token and user}, "401": {description: Invalid Google token}, "503": {description: Google login not configured}}
+  /api/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Email a password reset link
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [email], properties: {email: {type: string}}}}}}
+      responses: {"200": {description: Always OK, does not reveal if the email exists}}
+  /api/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Set a new password using a reset token
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [token, password], properties: {token: {type: string}, password: {type: string}}}}}}
+      responses: {"200": {description: Password changed}, "400": {description: Invalid or expired link}}
+  /api/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change your own password
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string}}}}}}
+      responses: {"200": {description: Password changed}, "400": {description: Validation error or wrong current password}, "401": {description: Not logged in}}
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      security: [{bearerAuth: []}]
+      responses: {"200": {description: Username and role}, "401": {description: Unauthorized}}
+  /api/auth/users:
+    get:
+      tags: [Auth]
+      summary: List all users (admin only)
+      security: [{bearerAuth: []}]
+      responses: {"200": {description: User list}, "401": {description: Unauthorized}, "403": {description: Forbidden}}
+  /api/auth/users/{uid}/role:
+    put:
+      tags: [Auth]
+      summary: Change a user's role (admin only)
+      security: [{bearerAuth: []}]
+      parameters: [{name: uid, in: path, required: true, schema: {type: integer}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [role], properties: {role: {type: string, enum: [admin, analyst, viewer]}}}}}}
+      responses: {"200": {description: Role updated}, "400": {description: Invalid role}, "403": {description: Forbidden}}
+  /api/alerts/:
+    get:
+      tags: [Alerts]
+      summary: List alerts with filters and paging
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: type, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [new, investigating, resolved]}}
+        - {name: q, in: query, schema: {type: string}, description: Search source, target or details}
+        - {name: limit, in: query, schema: {type: integer, default: 50, maximum: 200}}
+        - {name: offset, in: query, schema: {type: integer, default: 0}}
+      responses: {"200": {description: Alerts and total}, "401": {description: Unauthorized}}
+  /api/alerts/stats:
+    get:
+      tags: [Alerts]
+      summary: Alert counts by type and top sources
+      security: [{bearerAuth: []}]
+      responses: {"200": {description: Stats}, "401": {description: Unauthorized}}
+  /api/alerts/sensor:
+    get:
+      tags: [Alerts]
+      summary: Sensor online status
+      security: [{bearerAuth: []}]
+      responses: {"200": {description: Sensor status}, "401": {description: Unauthorized}}
+  /api/alerts/ingest:
+    post:
+      tags: [Alerts]
+      summary: Sensor posts a detected attack (needs X-Service-Key)
+      security: [{sensorKey: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [type, src], properties: {type: {type: string}, src: {type: string}, dst: {type: string}, dport: {type: string}, detail: {type: string}, time: {type: string}}}}}}
+      responses: {"201": {description: Alert stored}, "400": {description: type and src required}, "401": {description: Bad sensor key}}
+  /api/alerts/heartbeat:
+    post:
+      tags: [Alerts]
+      summary: Sensor heartbeat (needs X-Service-Key)
+      security: [{sensorKey: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {host: {type: string}, packets: {type: integer}, uptime: {type: integer}}}}}}
+      responses: {"200": {description: OK}, "401": {description: Bad sensor key}}
+  /api/alerts/{aid}/status:
+    put:
+      tags: [Alerts]
+      summary: Update alert status (admin or analyst)
+      security: [{bearerAuth: []}]
+      parameters: [{name: aid, in: path, required: true, schema: {type: integer}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, enum: [new, investigating, resolved]}}}}}}
+      responses: {"200": {description: Updated}, "400": {description: Invalid status}, "403": {description: Forbidden}, "404": {description: Alert not found}}
+  /api/alerts/{aid}/explain:
+    get:
+      tags: [Alerts]
+      summary: AI explanation of an alert (Claude or built-in guide)
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: aid, in: path, required: true, schema: {type: integer}}
+        - {name: refresh, in: query, schema: {type: string, enum: ["1"]}, description: Admin or analyst only, asks Claude again}
+      responses: {"200": {description: what, risk, steps}, "401": {description: Unauthorized}, "404": {description: Alert not found}}
+  /api/analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Summary statistics for the last N hours
+      security: [{bearerAuth: []}]
+      parameters: [{name: hours, in: query, schema: {type: integer, default: 24, minimum: 1, maximum: 720}}]
+      responses: {"200": {description: Summary JSON}, "401": {description: Unauthorized}}
+  /api/analytics/report.pdf:
+    get:
+      tags: [Analytics]
+      summary: Download the PDF security report
+      security: [{bearerAuth: []}]
+      parameters: [{name: hours, in: query, schema: {type: integer, default: 24}}]
+      responses: {"200": {description: PDF file}, "401": {description: Unauthorized}}
