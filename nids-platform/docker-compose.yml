@@ -18,7 +18,7 @@ services:
   gateway:
     image: nginx:alpine
     ports:
-      - "127.0.0.1:8088:80"
+      - "8088:80"
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -47,6 +47,8 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - SENSOR_KEY=${SENSOR_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AI_MODEL=${AI_MODEL:-claude-haiku-5-5}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/alerts_db
       - SMTP_USER=${SMTP_USER}
       - SMTP_APP_PASSWORD=${SMTP_APP_PASSWORD}
