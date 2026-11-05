@@ -5,6 +5,12 @@ import { timeAgo, downloadCSV } from '../format';
 import { useAuth } from '../AuthContext';
 import { alertsApi } from '../api';
 
+function formatClock(t) {
+  const d = new Date(t.replace(' ', 'T'));
+  if (isNaN(d)) return t;
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 const PAGE = 20;
 const TYPES = ['', 'PortScan', 'BruteForce', 'DoS', 'UDP Flood', 'ICMP Flood'];
 const STATUSES = ['new', 'investigating', 'resolved'];
@@ -93,7 +99,10 @@ export default function Alerts() {
                 return (
                   <Fragment key={a.id}>
                     <tr onClick={() => setOpenId(isOpen ? null : a.id)} style={{ cursor: 'pointer' }}>
-                      <td title={a.time} style={{ boxShadow: `inset 3px 0 0 ${sevColor[sev]}`, whiteSpace: 'nowrap' }}>{timeAgo(a.time)}</td>
+                     <td title={a.time} style={{ boxShadow: `inset 3px 0 0 ${sevColor[sev]}`, whiteSpace: 'nowrap' }}>
+  <div>{formatClock(a.time)}</div>
+  <div style={{ color: 'var(--muted)', fontSize: 11 }}>{timeAgo(a.time)}</div>
+</td>
                       <td><span className="badge" style={{ color: sevColor[sev] }}>{sev}</span></td>
                       <td>{a.type}</td>
                       <td><span className="badge" style={{ color: stColor }}>{st}</span></td>
