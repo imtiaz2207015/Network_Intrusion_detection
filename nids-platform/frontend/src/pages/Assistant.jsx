@@ -58,7 +58,6 @@ export default function Assistant() {
   return (
     <div className="as">
       <div className="as-head">
-        <h1>AI Assistant</h1>
         <p>Pick an alert to get a plain-English explanation and what to do about it.</p>
       </div>
 
@@ -103,21 +102,27 @@ export default function Assistant() {
                 )}
               </div>
 
-              {res && (
+                            {res && (
                 <div className="as-res">
-                  <div className="as-src">
+                  <span className={'as-from' + (res.source === 'claude' ? ' claude' : '')}>
                     {res.source === 'claude' ? 'Explained by Claude' : 'Built-in guide'}
                     {res.cached ? ' (saved)' : ''}
-                  </div>
+                  </span>
                   {res.note && <p className="as-note">{res.note}</p>}
-                  <h3>What happened</h3>
-                  <p>{res.what}</p>
-                  <h3>How serious</h3>
-                  <p>{res.risk}</p>
-                  <h3>What to do</h3>
-                  <ol>
-                    {res.steps.map((s, i) => <li key={i}>{s}</li>)}
-                  </ol>
+                  <div className="as-card">
+                    <h3>What happened</h3>
+                    <p>{res.what}</p>
+                  </div>
+                  <div className="as-card">
+                    <h3>How serious</h3>
+                    <p>{res.risk}</p>
+                  </div>
+                  <div className="as-card">
+                    <h3>What to do</h3>
+                    <ol>
+                      {res.steps.map((s, i) => <li key={i}>{s}</li>)}
+                    </ol>
+                  </div>
                 </div>
               )}
             </section>

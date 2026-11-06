@@ -24,16 +24,28 @@ export default function Layout() {
 
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('sidebar') === 'closed'
+  );
   const { pathname } = useLocation();
   const close = () => setOpen(false);
+
+  useEffect(() => {
+    localStorage.setItem('sidebar', collapsed ? 'closed' : 'open');
+  }, [collapsed]);
+
+  const toggleSidebar = () => {
+    if (window.matchMedia('(max-width: 900px)').matches) setOpen((o) => !o);
+    else setCollapsed((c) => !c);
+  };
 
   const current = links.find((l) => l.to === pathname);
   const title = current ? current.label : 'NIDS.AI';
 
-  useEffect(() => { document.title = `${title} · NIDS.AI`; }, [title]);
+  useEffect(() => { document.title = `${title} - NIDS.AI`; }, [title]);
 
   return (
-    <div className="layout">
+    <div className={'layout' + (collapsed ? ' collapsed' : '')}>
       {open && <div className="overlay" onClick={close} />}
       <aside className={'sidebar' + (open ? ' open' : '')}>
         <div className="brand">NIDS.AI</div>
@@ -50,7 +62,10 @@ export default function Layout() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <button className="menu-btn" onClick={() => setOpen(true)} aria-label="Menu">☰</button>
+          <button className="menu-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
           <span className="page-title">{title}</span>
           <SensorBadge />
           <span className="uname">{user.username}</span>

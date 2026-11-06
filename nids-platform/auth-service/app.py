@@ -1,4 +1,4 @@
-import os, re, time, secrets, hashlib, smtplib
+import os, re, time, secrets, hashlib, hmac, smtplib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
@@ -22,6 +22,9 @@ MAX_FAILS = 5
 LOCK_SECONDS = 600
 RESET_SECONDS = 900          # reset link valid for 15 minutes
 ROLES = ("admin", "analyst", "viewer")
+CODE_SECONDS = 600
+CODE_COOLDOWN = 60
+CODE_MAX_TRIES = 5
 
 
 def now_iso():
@@ -61,7 +64,14 @@ def init_db():
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       token_hash TEXT UNIQUE NOT NULL,
-      expires_at DOUBLE PRECISION NOT NULL);
+            expires_at DOUBLE PRECISION NOT NULL);
+    CREATE TABLE IF NOT EXISTS password_change_codes(
+      user_id INTEGER PRIMARY KEY,
+      code_hash TEXT NOT NULL,
+      new_hash TEXT NOT NULL,
+      expires_at DOUBLE PRECISION NOT NULL,
+      sent_at DOUBLE PRECISION NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0);
     """)
     con.commit()
     con.close()
@@ -302,16 +312,16 @@ def set_role(uid):
     query("UPDATE users SET role=%s WHERE id=%s", (role, uid))
     db().commit()
     return jsonify(ok=True)
+def hash_code(uid, code):
+    return hashlib.sha256(f"{uid}:{code}:{SECRET}".encode()).hexdigest()
 
-@app.post("/change-password")
-@auth_required()
-def change_password():
-    d = request.get_json(silent=True) or {}
-    current = d.get("current_password") or ""
-    new = d.get("new_password") or ""
-    u = query("SELECT * FROM users WHERE id=%s", (int(g.user["sub"]),)).fetchone()
-    if not u:
-        return jsonify(error="User not found"), 404
+
+def mask_email(e):
+    name, _, dom = e.partition("@")
+    return name[:2] + "***@" + dom
+
+
+def check_current(u, current):
     if u["locked_until"] > time.time():
         return jsonify(error="Too many wrong attempts. Try again in a few minutes."), 423
     if not check_password_hash(u["password_hash"], current):
@@ -321,11 +331,71 @@ def change_password():
               (0 if locked else fails, locked, u["id"]))
         db().commit()
         return jsonify(error="Current password is incorrect"), 400
+    return None
+
+
+@app.post("/change-password/request")
+@auth_required()
+def change_password_request():
+    d = request.get_json(silent=True) or {}
+    current = d.get("current_password") or ""
+    new = d.get("new_password") or ""
+    u = query("SELECT * FROM users WHERE id=%s", (int(g.user["sub"]),)).fetchone()
+    if not u:
+        return jsonify(error="User not found"), 404
+    bad = check_current(u, current)
+    if bad:
+        return bad
     if not valid_password(new):
         return jsonify(error="Password: at least 8 characters with letters and numbers"), 400
     if check_password_hash(u["password_hash"], new):
         return jsonify(error="New password must be different from the current one"), 400
-    query("UPDATE users SET password_hash=%s, failed_attempts=0, locked_until=0 WHERE id=%s",
-          (generate_password_hash(new), u["id"]))
+    row = query("SELECT sent_at FROM password_change_codes WHERE user_id=%s",
+                (u["id"],)).fetchone()
+    if row and time.time() - row["sent_at"] < CODE_COOLDOWN:
+        return jsonify(error="Please wait a minute before asking for a new code"), 429
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    now = time.time()
+    query("""INSERT INTO password_change_codes(user_id,code_hash,new_hash,expires_at,sent_at,attempts)
+             VALUES(%s,%s,%s,%s,%s,0)
+             ON CONFLICT (user_id) DO UPDATE SET
+               code_hash=EXCLUDED.code_hash, new_hash=EXCLUDED.new_hash,
+               expires_at=EXCLUDED.expires_at, sent_at=EXCLUDED.sent_at, attempts=0""",
+          (u["id"], hash_code(u["id"], code), generate_password_hash(new),
+           now + CODE_SECONDS, now))
     db().commit()
-    return jsonify(ok=True)    
+    try:
+        send_mail(u["email"], "Your NIDS password change code",
+                  f"Hi {u['username']},\n\nYour verification code is: {code}\n\n"
+                  "It expires in 10 minutes. If you did not ask to change your "
+                  "password, ignore this email and change your password.")
+    except Exception as e:
+        app.logger.error("Change-password email failed: %s", e)
+        query("DELETE FROM password_change_codes WHERE user_id=%s", (u["id"],))
+        db().commit()
+        return jsonify(error="Could not send the email. Try again later."), 502
+    return jsonify(ok=True, email=mask_email(u["email"]))
+
+
+@app.post("/change-password/confirm")
+@auth_required()
+def change_password_confirm():
+    code = str((request.get_json(silent=True) or {}).get("code") or "").strip()
+    uid = int(g.user["sub"])
+    r = query("SELECT * FROM password_change_codes WHERE user_id=%s", (uid,)).fetchone()
+    if not r or r["expires_at"] < time.time():
+        return jsonify(error="Code expired. Ask for a new one."), 400
+    if r["attempts"] >= CODE_MAX_TRIES:
+        query("DELETE FROM password_change_codes WHERE user_id=%s", (uid,))
+        db().commit()
+        return jsonify(error="Too many wrong codes. Ask for a new one."), 400
+    if not hmac.compare_digest(r["code_hash"], hash_code(uid, code)):
+        query("UPDATE password_change_codes SET attempts=attempts+1 WHERE user_id=%s", (uid,))
+        db().commit()
+        return jsonify(error="Wrong code"), 400
+    query("UPDATE users SET password_hash=%s, failed_attempts=0, locked_until=0 WHERE id=%s",
+          (r["new_hash"], uid))
+    query("DELETE FROM password_change_codes WHERE user_id=%s", (uid,))
+    db().commit()
+    return jsonify(ok=True)

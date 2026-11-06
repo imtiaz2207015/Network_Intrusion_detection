@@ -30,3 +30,16 @@
   .lp-hero{padding-top:40px}
 }
 .menu-btn{margin-right:0 !important}
+/* sidebar toggle: visible on every screen size */
+.menu-btn{display:flex !important;align-items:center;justify-content:center;margin-right:0 !important;padding:7px 10px}
+
+@media (min-width:901px){
+  .sidebar{transition:margin-left .3s ease}
+  .layout.collapsed .sidebar{margin-left:-230px}
+}
+
+/* settings page: two columns */
+.st{max-width:720px;margin:0 auto}
+.st-cols{display:grid;grid-template-columns:1fr;gap:16px}
+.st-col{display:grid;gap:16px}
+@media (max-width:900px){.st-cols{grid-template-columns:1fr}}

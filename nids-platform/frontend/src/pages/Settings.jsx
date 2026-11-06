@@ -2,59 +2,12 @@ import { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useTheme } from '../theme';
 import { notifyEnabled, enableNotify, disableNotify, testNotify } from '../notify';
+import ChangePassword from './ChangePassword';
 import { api } from '../api';
 
 const row = { display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)', gap: 12 };
 
-function ChangePassword({ token }) {
-  const [cur, setCur] = useState('');
-  const [pw, setPw] = useState('');
-  const [pw2, setPw2] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [ok, setOk] = useState('');
 
-  async function submit(e) {
-    e.preventDefault();
-    setErr(''); setOk('');
-    if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
-      setErr('New password: at least 8 characters with letters and numbers');
-      return;
-    }
-    if (pw !== pw2) { setErr('New passwords do not match'); return; }
-    setBusy(true);
-    try {
-      await api('/change-password', {
-        method: 'POST', token,
-        body: { current_password: cur, new_password: pw },
-      });
-      setOk('Password changed.');
-      setCur(''); setPw(''); setPw2('');
-    } catch (e2) {
-      setErr(e2.message);
-    }
-    setBusy(false);
-  }
-
-  return (
-    <div className="card">
-      <div className="stat-label" style={{ marginBottom: 12 }}>Change password</div>
-      <form onSubmit={submit} style={{ display: 'grid', gap: 10, maxWidth: 360 }}>
-        <input className="input" type="password" placeholder="Current password"
-          autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} />
-        <input className="input" type="password" placeholder="New password"
-          autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
-        <input className="input" type="password" placeholder="Confirm new password"
-          autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
-        <button className="btn sm" type="submit" disabled={busy}>
-          {busy ? 'Saving...' : 'Update password'}
-        </button>
-      </form>
-      {err && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{err}</p>}
-      {ok && <p style={{ color: 'var(--accent)', fontSize: 13, marginTop: 12 }}>{ok}</p>}
-    </div>
-  );
-}
 
 export default function Settings() {
   const { user, token, logout } = useAuth();
@@ -72,8 +25,9 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 16, maxWidth: 720 }}>
-      <h2>Settings</h2>
+        <div className="st">
+      <div className="st-cols">
+      <div className="st-col">
 
       <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
         <div style={{
@@ -110,6 +64,8 @@ export default function Settings() {
         {msg && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{msg}</p>}
       </div>
 
+      </div>
+      <div className="st-col">
       <ChangePassword token={token} />
 
       <div className="card">
@@ -137,7 +93,9 @@ export default function Settings() {
           <div style={{ fontWeight: 600 }}>Sign out</div>
           <div style={{ color: 'var(--muted)', fontSize: 13 }}>End your session on this device.</div>
         </div>
-        <button className="btn" onClick={logout}>Log out</button>
+           <button className="btn" onClick={logout}>Log out</button>
+      </div>
+      </div>
       </div>
     </div>
   );
