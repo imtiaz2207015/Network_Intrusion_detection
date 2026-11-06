@@ -72,3 +72,10 @@
   .as-list { max-height: 260px; }
   .as-panel { max-height: none; }
 }
+
+.as-panel{max-height:none;overflow:visible}
+
+.as-verdict{margin-top:12px;padding:12px 16px;border-radius:12px;font-weight:700;font-size:16px;border:1px solid}
+.as-v-high{color:#fca5a5;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.5)}
+.as-v-medium{color:#fdba74;background:rgba(249,115,22,.12);border-color:rgba(249,115,22,.5)}
+.as-v-low{color:#86efac;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.5)}

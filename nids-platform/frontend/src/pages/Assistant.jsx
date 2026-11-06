@@ -10,6 +10,16 @@ function sevOf(type = '') {
   return 'Medium';
 }
 
+function splitVerdict(text = '') {
+  const m = text.match(/^\[(HIGH|MEDIUM|LOW)\]\s*/i);
+  if (!m) return { level: '', verdict: '', body: text };
+  const rest = text.slice(m[0].length);
+  const k = rest.search(/[.!?](\s|$)/);
+  const level = m[1].toLowerCase();
+  if (k < 0) return { level, verdict: rest, body: '' };
+  return { level, verdict: rest.slice(0, k + 1), body: rest.slice(k + 1).trim() };
+}
+
 export default function Assistant() {
   const { token, user } = useAuth();
   const [alerts, setAlerts] = useState([]);
@@ -54,6 +64,7 @@ export default function Assistant() {
 
   const sev = sel ? sevOf(sel.type) : '';
   const port = sel && sel.dport && sel.dport !== '-' ? ':' + sel.dport : '';
+  const v = res ? splitVerdict(res.what) : null;
 
   return (
     <div className="as">
@@ -102,16 +113,17 @@ export default function Assistant() {
                 )}
               </div>
 
-                            {res && (
+                               {res && (
                 <div className="as-res">
                   <span className={'as-from' + (res.source === 'claude' ? ' claude' : '')}>
                     {res.source === 'claude' ? 'Explained by Claude' : 'Built-in guide'}
                     {res.cached ? ' (saved)' : ''}
                   </span>
                   {res.note && <p className="as-note">{res.note}</p>}
+                  {v.level && <div className={'as-verdict as-v-' + v.level}>{v.verdict}</div>}
                   <div className="as-card">
                     <h3>What happened</h3>
-                    <p>{res.what}</p>
+                    <p>{v.level ? (v.body || v.verdict) : res.what}</p>
                   </div>
                   <div className="as-card">
                     <h3>How serious</h3>
@@ -123,6 +135,9 @@ export default function Assistant() {
                       {res.steps.map((s, i) => <li key={i}>{s}</li>)}
                     </ol>
                   </div>
+                  {res.source === 'claude' && (
+                    <p className="as-note">AI-generated. Please verify before acting.</p>
+                  )}
                 </div>
               )}
             </section>
