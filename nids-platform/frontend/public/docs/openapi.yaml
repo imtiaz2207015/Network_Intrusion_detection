@@ -44,13 +44,20 @@ paths:
       summary: Set a new password using a reset token
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [token, password], properties: {token: {type: string}, password: {type: string}}}}}}
       responses: {"200": {description: Password changed}, "400": {description: Invalid or expired link}}
-  /api/auth/change-password:
+  /api/auth/change-password/request:
     post:
       tags: [Auth]
-      summary: Change your own password
+      summary: Step 1 of changing your password - verify the current password and email a 6-digit code
       security: [{bearerAuth: []}]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string}}}}}}
-      responses: {"200": {description: Password changed}, "400": {description: Validation error or wrong current password}, "401": {description: Not logged in}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string, description: At least 8 characters with letters and numbers}}}}}}
+      responses: {"200": {description: Code sent. Returns ok and the masked email}, "400": {description: Wrong current password, weak password, or same as the current one}, "401": {description: Not logged in}, "404": {description: User not found}, "429": {description: Asked for a new code too soon (1 minute cooldown)}, "502": {description: Could not send the email}}
+  /api/auth/change-password/confirm:
+    post:
+      tags: [Auth]
+      summary: Step 2 of changing your password - submit the emailed 6-digit code
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [code], properties: {code: {type: string, description: 6-digit code from the email}}}}}}
+      responses: {"200": {description: Password changed}, "400": {description: Wrong code, expired code, or too many wrong tries}, "401": {description: Not logged in}}
   /api/auth/me:
     get:
       tags: [Auth]
