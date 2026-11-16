@@ -4,6 +4,12 @@ import metrics from '../modelMetrics.json';
 const pct = (v) => (v * 100).toFixed(2) + '%';
 const num = (n) => n.toLocaleString();
 
+const SHORT_TITLES = {
+  binary78: 'Binary RF (78 feat)',
+  binary23: 'Live Binary (23 feat)',
+  multiclass: 'Multiclass (11 classes)',
+};
+
 function Bar({ value, color }) {
   return (
     <div style={{ background: 'var(--surface-2)', borderRadius: 6, height: 8, minWidth: 60 }}>
@@ -16,15 +22,15 @@ function Matrix({ model }) {
   const big = model.classes.length > 2;
   const rowLabel = (i) => (big ? `${i + 1}. ${model.classes[i]}` : model.classes[i]);
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ borderCollapse: 'separate', borderSpacing: 3, fontSize: big ? 11 : 14 }}>
+    <div className="table-scroll-wrap mp-matrix-wrap">
+      <table className={'mp-matrix-table' + (big ? ' is-big' : '')} style={{ borderCollapse: 'separate', borderSpacing: 3, fontSize: big ? 11 : 14 }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'right', color: 'var(--muted)', fontWeight: 500, paddingRight: 8 }}>
-              Actual ↓ &nbsp;/&nbsp; Predicted →
+            <th style={{ textAlign: 'right', color: 'var(--muted)', fontWeight: 500, paddingRight: 8, whiteSpace: 'nowrap' }}>
+              Actual ↓ / Pred →
             </th>
             {model.classes.map((c, j) => (
-              <th key={c} style={{ color: 'var(--muted)', fontWeight: 500, padding: '0 4px' }}>
+              <th key={c} style={{ color: 'var(--muted)', fontWeight: 500, padding: '0 4px', whiteSpace: 'nowrap' }}>
                 {big ? j + 1 : c}
               </th>
             ))}
@@ -40,16 +46,16 @@ function Matrix({ model }) {
                   const a = v / total;
                   let bg = 'var(--surface-2)';
                   if (v > 0) {
+                    const pctMix = Math.round(Math.min(100, Math.max(18, (i === j ? a : a * 6) * 100)));
                     bg = i === j
-                      ? `rgba(34,211,238,${Math.max(0.15, a)})`
-                      : `rgba(248,113,113,${Math.min(0.75, Math.max(0.2, a * 6))})`;
+                      ? `color-mix(in srgb, var(--accent) ${pctMix}%, var(--surface-2))`
+                      : `color-mix(in srgb, var(--danger) ${Math.min(80, pctMix)}%, var(--surface-2))`;
                   }
                   return (
-                    <td key={j} style={{
+                    <td key={j} className={'mono mp-matrix-cell' + (big ? ' big' : ' binary')} style={{
                       background: bg, borderRadius: 6, textAlign: 'center',
-                      padding: big ? '6px 8px' : '20px 34px',
                       fontWeight: i === j ? 700 : 400,
-                      color: i === j && a > 0.6 ? '#06101f' : 'inherit',
+                      color: i === j && a > 0.6 ? 'var(--btn-text)' : 'inherit',
                     }}>{num(v)}</td>
                   );
                 })}
@@ -83,46 +89,73 @@ export default function ModelPerformance() {
         </p>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <div className="stat-label" style={{ marginBottom: 8 }}>Model comparison</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={th}>Model</th><th style={th}>Features</th><th style={th}>Test rows</th>
-              <th style={th}>Accuracy</th><th style={th}>Precision</th><th style={th}>Recall</th><th style={th}>F1</th>
-            </tr>
-          </thead>
-          <tbody>
-            {metrics.models.map((m) => (
-              <tr key={m.key} style={{ borderTop: '1px solid var(--surface-2)' }}>
-                <td style={td}>{m.title}</td>
-                <td style={td}>{m.n_features}</td>
-                <td style={td}>{num(m.test_rows)}</td>
-                <td style={td}>{pct(m.accuracy)}</td>
-                <td style={td}>{pct(m.precision)}</td>
-                <td style={td}>{pct(m.recall)}</td>
-                <td style={td}>{pct(m.f1)}</td>
+      <div className="card">
+        <div className="stat-label" style={{ marginBottom: 4 }}>Model comparison</div>
+        <p style={{ color: 'var(--muted)', fontSize: 12.5, marginBottom: 10 }}>
+          Click or press Enter/Space on any row to inspect its metrics and confusion matrix below.
+        </p>
+        <div className="table-scroll-wrap mp-comp-wrap">
+          <table className="table mp-comp-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th className="mp-sticky-col" style={th}>Model</th>
+                <th className="mp-num-col" style={th}>Features</th>
+                <th className="mp-num-col" style={th}>Test rows</th>
+                <th className="mp-num-col" style={th}>Accuracy</th>
+                <th className="mp-num-col" style={th}>Precision</th>
+                <th className="mp-num-col" style={th}>Recall</th>
+                <th className="mp-num-col" style={th}>F1</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {metrics.models.map((m) => {
+                const selected = key === m.key;
+                return (
+                  <tr
+                    key={m.key}
+                    role="button"
+                    tabIndex={0}
+                    aria-selected={selected}
+                    className={selected ? 'mp-row-selected' : ''}
+                    onClick={() => setKey(m.key)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setKey(m.key);
+                      }
+                    }}
+                    style={{
+                      borderTop: '1px solid var(--surface-2)',
+                      cursor: 'pointer',
+                      background: selected ? 'var(--accent-soft)' : undefined,
+                      boxShadow: selected ? 'inset 3px 0 0 var(--accent)' : undefined,
+                      fontWeight: selected ? 600 : 400,
+                    }}
+                  >
+                    <td className="mp-sticky-col" style={{ ...td, color: selected ? 'var(--accent)' : 'inherit' }}>
+                      <span className="mp-title-full">{m.title}</span>
+                      <span className="mp-title-short">{SHORT_TITLES[m.key] || m.title}</span>
+                    </td>
+                    <td className="mono mp-num-col" style={td}>{m.n_features}</td>
+                    <td className="mono mp-num-col" style={td}>{num(m.test_rows)}</td>
+                    <td className="mono mp-num-col" style={td}>{pct(m.accuracy)}</td>
+                    <td className="mono mp-num-col" style={td}>{pct(m.precision)}</td>
+                    <td className="mono mp-num-col" style={td}>{pct(m.recall)}</td>
+                    <td className="mono mp-num-col" style={td}>{pct(m.f1)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {metrics.models.map((m) => (
-          <button key={m.key} onClick={() => setKey(m.key)}
-            style={{
-              padding: '9px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600,
-              border: '1px solid var(--surface-2)',
-              color: key === m.key ? '#06101f' : 'inherit',
-              background: key === m.key
-                ? 'linear-gradient(90deg, var(--accent), var(--accent-2))'
-                : 'var(--surface-2)',
-            }}>{m.title}</button>
-        ))}
+      <div>
+        <div className="stat-label" style={{ fontSize: 14, color: 'var(--text)', fontWeight: 600 }}>
+          Selected model: <span style={{ color: 'var(--accent)' }}>{model.title}</span>
+        </div>
+        <p style={{ color: 'var(--muted)', margin: '4px 0 0', fontSize: 13 }}>{model.description}</p>
       </div>
-
-      <p style={{ color: 'var(--muted)', margin: 0, fontSize: 13 }}>{model.description}</p>
 
       <div className="grid">
         <div className="card"><div className="stat-label">Accuracy</div><div className="stat-value">{pct(model.accuracy)}</div></div>
@@ -133,30 +166,33 @@ export default function ModelPerformance() {
 
       <div className="card">
         <div className="stat-label" style={{ marginBottom: 12 }}>
-          Confusion matrix (cyan = correct, red = errors)
+          Confusion matrix (green = correct, red = errors)
         </div>
         <Matrix model={model} />
       </div>
 
       <div className="card">
         <div className="stat-label" style={{ marginBottom: 12 }}>Per-class results</div>
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ minWidth: 520 }}>
-            {model.per_class.map((c) => (
-              <div key={c.name} style={{
-                display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 70px 80px',
-                gap: 12, alignItems: 'center', marginBottom: 10, fontSize: 13,
-              }}>
-                <span>{c.name}</span>
-                <div><div style={{ color: 'var(--muted)', fontSize: 11 }}>Precision {pct(c.precision)}</div>
-                  <Bar value={c.precision} color="var(--accent)" /></div>
-                <div><div style={{ color: 'var(--muted)', fontSize: 11 }}>Recall {pct(c.recall)}</div>
-                  <Bar value={c.recall} color="var(--accent-2)" /></div>
-                <span>F1 {c.f1.toFixed(2)}</span>
-                <span style={{ color: 'var(--muted)' }}>n = {num(c.support)}</span>
+        <div className="mp-class-list">
+          {model.per_class.map((c) => (
+            <div key={c.name} className="mp-class-row">
+              <span className="mp-class-name">{c.name}</span>
+              <div className="mp-class-bar">
+                <div style={{ color: 'var(--muted)', fontSize: 11 }}>
+                  Precision <span className="mono">{pct(c.precision)}</span>
+                </div>
+                <Bar value={c.precision} color="var(--accent)" />
               </div>
-            ))}
-          </div>
+              <div className="mp-class-bar">
+                <div style={{ color: 'var(--muted)', fontSize: 11 }}>
+                  Recall <span className="mono">{pct(c.recall)}</span>
+                </div>
+                <Bar value={c.recall} color="var(--accent-2)" />
+              </div>
+              <span className="mono mp-class-f1">F1 {c.f1.toFixed(2)}</span>
+              <span className="mono mp-class-sup" style={{ color: 'var(--muted)' }}>n = {num(c.support)}</span>
+            </div>
+          ))}
         </div>
       </div>
 

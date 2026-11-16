@@ -7,12 +7,14 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Alerts from './pages/Alerts';
+import BlockedIps from './pages/BlockedIps';
 import Analytics from './pages/Analytics';
 import ModelPerformance from './pages/ModelPerformance';
 import Assistant from './pages/Assistant';
 import Placeholder from './pages/Placeholder';
 import Landing from './pages/Landing';
 import Settings from './pages/Settings';
+import Help from './pages/Help';
 import NotFound from './pages/NotFound';
 
 function Protected({ children }) {
@@ -35,10 +37,12 @@ export default function App() {
           <Route element={<Protected><Layout /></Protected>}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/blocked" element={<BlockedIps />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/models" element={<ModelPerformance />} />
             <Route path="/assistant" element={<Assistant />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/help" element={<Help />} />
             <Route path="/admin" element={<Placeholder title="Admin" note="User and role management arrive in Phase 7." />} />
           </Route>
           <Route path="*" element={<NotFound />} />

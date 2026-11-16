@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { alertsApi } from './api';
 
@@ -6,23 +6,43 @@ export function severity(type) {
   const t = (type || '').toLowerCase();
   if (t.includes('dos') || t.includes('syn')) return 'Critical';
   if (t.includes('brute') || t.includes('udp') || t.includes('icmp')) return 'High';
+  if (t.includes('low') || t.includes('info') || t.includes('benign')) return 'Low';
   return 'Medium';
 }
 
 export const sevColor = {
   Critical: 'var(--danger)',
-  High: 'var(--warn)',
-  Medium: 'var(--accent)',
+  High: 'var(--high)',
+  Medium: 'var(--warn)',
+  Low: 'var(--muted)',
 };
+
+export const SEV_RANK = {
+  Critical: 4,
+  High: 3,
+  Medium: 2,
+  Low: 1,
+};
+
+export function parseAlertTimeMs(t) {
+  if (!t) return NaN;
+  const s = String(t).trim().replace(' ', 'T');
+  const ms = Date.parse(s.endsWith('Z') ? s : s + 'Z');
+  return isNaN(ms) ? Date.parse(s) : ms;
+}
 
 export function usePolling(path, ms = 5000) {
   const { token, logout } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     let alive = true;
     async function load() {
+      if (typeof document !== 'undefined' && document.hidden) return;
       try {
         const d = await alertsApi(path, { token });
         if (alive) { setData(d); setError(''); }
@@ -33,10 +53,18 @@ export function usePolling(path, ms = 5000) {
     }
     load();
     const id = setInterval(load, ms);
-    return () => { alive = false; clearInterval(id); };
-  }, [path, token, ms]);
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [path, token, ms, tick]);
 
-  return { data, error };
+  return { data, error, reload };
 }
 
 export const advice = {
@@ -92,4 +120,3 @@ export function getAdvice(type) {
     actions: ['Check the source IP and destination.', 'Block the source if it is unexpected.'],
   };
 }
-

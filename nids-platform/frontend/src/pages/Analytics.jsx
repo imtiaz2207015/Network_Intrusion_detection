@@ -2,8 +2,15 @@ import { useState, useEffect } from 'react';
 import { severity, sevColor } from '../utils';
 import { useAuth } from '../AuthContext';
 import { analyticsApi, downloadReport } from '../api';
+import { CountUp, Skeleton, ErrorBox, Empty } from '../ui';
 
-const RANGES = [[1, 'Last hour'], [6, 'Last 6 hours'], [24, 'Last 24 hours'], [168, 'Last 7 days'], [720, 'Last 30 days']];
+const RANGES = [
+  [1, 'Last hour'],
+  [6, 'Last 6 hours'],
+  [24, 'Last 24 hours'],
+  [168, 'Last 7 days'],
+  [720, 'Last 30 days'],
+];
 
 function useSummary(hours) {
   const { token, logout } = useAuth();
@@ -36,40 +43,71 @@ function tlLabel(key, bucket) {
 
 function Donut({ data }) {
   const total = data.reduce((s, d) => s + d.n, 0) || 1;
-  const r = 70, c = 2 * Math.PI * r;
+  const r = 68, c = 2 * Math.PI * r;
   let offset = 0;
   return (
-    <svg viewBox="0 0 200 200" style={{ width: 200, height: 200 }}>
-      <circle cx="100" cy="100" r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="26" />
+    <svg viewBox="0 0 190 190" style={{ width: 176, height: 176, flexShrink: 0 }}>
+      <circle cx="95" cy="95" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="24" />
       {data.map((d) => {
         const len = (d.n / total) * c;
         const el = (
-          <circle key={d.label} cx="100" cy="100" r={r} fill="none" stroke={d.color} strokeWidth="26"
-            strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offset}
-            transform="rotate(-90 100 100)" />
+          <circle
+            key={d.label}
+            cx="95"
+            cy="95"
+            r={r}
+            fill="none"
+            stroke={d.color}
+            strokeWidth="24"
+            strokeDasharray={`${len} ${c - len}`}
+            strokeDashoffset={-offset}
+            transform="rotate(-90 95 95)"
+          >
+            <title>{`${d.label}: ${d.n} (${((d.n / total) * 100).toFixed(1)}%)`}</title>
+          </circle>
         );
         offset += len;
         return el;
       })}
-      <text x="100" y="98" textAnchor="middle" fill="#e6eaf5" fontSize="28" fontWeight="700">{data.length ? total : 0}</text>
-      <text x="100" y="118" textAnchor="middle" fill="#8b93ad" fontSize="11">alerts</text>
+      <text x="95" y="91" textAnchor="middle" fill="var(--text)" fontSize="26" fontWeight="700" className="mono">
+        {data.length ? total : 0}
+      </text>
+      <text x="95" y="111" textAnchor="middle" fill="var(--muted)" fontSize="11">
+        alerts
+      </text>
     </svg>
   );
 }
 
-function BarList({ rows, color = 'var(--accent)' }) {
+function BarList({ rows, color = 'var(--accent)', prefix = '' }) {
   const max = Math.max(1, ...rows.map(([, n]) => n));
-  if (!rows.length) return <p style={{ color: 'var(--muted)' }}>No data in this range.</p>;
-  return rows.map(([name, n]) => (
-    <div key={name} style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-        <span>{name}</span><span style={{ color: 'var(--muted)' }}>{n}</span>
-      </div>
-      <div style={{ background: 'var(--surface-2)', borderRadius: 6, height: 8 }}>
-        <div style={{ width: `${(n / max) * 100}%`, height: '100%', borderRadius: 6, background: color }} />
-      </div>
+  const sum = rows.reduce((s, [, n]) => s + n, 0) || 1;
+  if (!rows.length) {
+    return <Empty icon="📊" title="No data in this window" note="Select a wider time range above." />;
+  }
+  return (
+    <div className="an-barlist">
+      {rows.map(([name, n]) => {
+        const pct = Math.round((n / sum) * 100);
+        return (
+          <div key={name} className="an-bar-item">
+            <div className="an-bar-top">
+              <span className="mono an-bar-name">{prefix}{name}</span>
+              <span className="mono an-bar-count">
+                <b>{n.toLocaleString()}</b> <small>({pct}%)</small>
+              </span>
+            </div>
+            <div className="an-bar-track">
+              <div
+                className="an-bar-fill"
+                style={{ width: `${(n / max) * 100}%`, background: color }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
-  ));
+  );
 }
 
 export default function Analytics() {
@@ -78,6 +116,7 @@ export default function Analytics() {
   const { data, error } = useSummary(hours);
   const [busy, setBusy] = useState(false);
   const [dlError, setDlError] = useState('');
+  const [hoverIdx, setHoverIdx] = useState(null);
 
   function pickRange(h) {
     setHours(h);
@@ -96,25 +135,50 @@ export default function Analytics() {
   }
 
   const header = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-      <h2>Analytics</h2>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select className="input" style={{ width: 170 }} value={hours}
-          onChange={(e) => pickRange(Number(e.target.value))}>
-          {RANGES.map(([h, l]) => <option key={h} value={h}>{l}</option>)}
-        </select>
-        <button onClick={onDownload} disabled={busy}
-          style={{ padding: '10px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600,
-                   color: '#06101f', background: 'linear-gradient(90deg, var(--accent), var(--accent-2))' }}>
-          {busy ? 'Generating...' : 'Download PDF report'}
+    <div className="an-header">
+      <div>
+        <h2>Security Analytics</h2>
+        <p className="band-sub">
+          Historical traffic volume, severity distribution, top offending sources, and targeted service ports.
+        </p>
+      </div>
+      <div className="an-controls">
+        <div className="an-range-pills" role="group" aria-label="Time range">
+          {RANGES.map(([h, l]) => (
+            <button
+              key={h}
+              type="button"
+              className={'an-pill' + (hours === h ? ' active' : '')}
+              onClick={() => pickRange(h)}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <button className="btn sm" onClick={onDownload} disabled={busy}>
+          {busy ? 'Generating PDF...' : '⬇ Download PDF Report'}
         </button>
       </div>
       {dlError && <div style={{ color: 'var(--danger)', fontSize: 12, width: '100%' }}>{dlError}</div>}
     </div>
   );
 
-  if (error) return <div style={{ display: 'grid', gap: 16 }}>{header}<p style={{ color: 'var(--danger)' }}>{error}</p></div>;
-  if (!data) return <div style={{ display: 'grid', gap: 16 }}>{header}<p style={{ color: 'var(--muted)' }}>Loading...</p></div>;
+  if (error) return <div style={{ display: 'grid', gap: 16 }}>{header}<ErrorBox message={error} /></div>;
+  if (!data) {
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        {header}
+        <div className="grid">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} h={104} r={16} />)}
+        </div>
+        <Skeleton h={250} r={16} />
+        <div className="dash-trend-grid">
+          <Skeleton h={240} r={16} />
+          <Skeleton h={240} r={16} />
+        </div>
+      </div>
+    );
+  }
 
   const types = Object.entries(data.by_type).sort((a, b) => b[1] - a[1]);
   const sevMap = {};
@@ -123,76 +187,156 @@ export default function Analytics() {
 
   const bars = data.timeline.map((b) => ({ label: tlLabel(b.hour, data.bucket), n: b.count }));
   const maxBar = Math.max(1, ...bars.map((b) => b.n));
-  const W = 600, H = 160;
+  const W = 680, H = 180;
   const pts = bars.map((b, i) => [
-    (i / Math.max(1, bars.length - 1)) * W,
-    H - (b.n / maxBar) * (H - 10) - 5,
+    (i / Math.max(1, bars.length - 1)) * (W - 24) + 12,
+    H - (b.n / maxBar) * (H - 32) - 14,
   ]);
   const line = pts.map((p) => p.join(',')).join(' ');
-  const area = pts.length ? `0,${H} ${line} ${W},${H}` : '';
+  const area = pts.length ? `${pts[0][0]},${H} ${line} ${pts[pts.length - 1][0]},${H}` : '';
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div style={{ display: 'grid', gap: 18 }}>
       {header}
 
       <div className="grid">
-        <div className="card"><div className="stat-label">Total alerts</div><div className="stat-value">{data.total}</div></div>
-        <div className="card"><div className="stat-label">Attack types</div><div className="stat-value">{types.length}</div></div>
-        <div className="card"><div className="stat-label">Unique sources</div><div className="stat-value">{data.unique_sources}</div></div>
-        <div className="card"><div className="stat-label">Unique targets</div><div className="stat-value">{data.unique_targets}</div></div>
+        <div className="card kpi-card">
+          <div className="stat-label">Total Alerts</div>
+          <div className="stat-value"><CountUp value={data.total} /></div>
+          <div className="kpi-sub mono">In selected {hours}h window</div>
+        </div>
+        <div className="card kpi-card">
+          <div className="stat-label">Attack Signatures</div>
+          <div className="stat-value" style={{ color: 'var(--accent-2)' }}><CountUp value={types.length} /></div>
+          <div className="kpi-sub mono">Distinct classes triggered</div>
+        </div>
+        <div className="card kpi-card">
+          <div className="stat-label">Unique Sources</div>
+          <div className="stat-value" style={{ color: 'var(--danger)' }}><CountUp value={data.unique_sources} /></div>
+          <div className="kpi-sub mono">Offending source IPs</div>
+        </div>
+        <div className="card kpi-card">
+          <div className="stat-label">Unique Targets</div>
+          <div className="stat-value" style={{ color: 'var(--warn)' }}><CountUp value={data.unique_targets} /></div>
+          <div className="kpi-sub mono">Destination hosts probed</div>
+        </div>
       </div>
 
       <div className="card">
-        <div className="stat-label" style={{ marginBottom: 12 }}>Alert activity (per {data.bucket})</div>
+        <div className="band-head">
+          <div>
+            <div className="stat-label">Alerts over time · selected range (per {data.bucket})</div>
+            <p className="band-sub">Hover over any interval along the curve to inspect exact historical volume.</p>
+          </div>
+          {hoverIdx !== null && bars[hoverIdx] ? (
+            <span className="badge mono" style={{ color: 'var(--accent)', borderColor: 'var(--accent-border)' }}>
+              {bars[hoverIdx].label} · {bars[hoverIdx].n} alerts
+            </span>
+          ) : (
+            <span className="badge mono">Peak: {maxBar} / {data.bucket}</span>
+          )}
+        </div>
+
         {bars.length ? (
           <>
-            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 180 }} preserveAspectRatio="none">
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              style={{ width: '100%', height: 195, overflow: 'visible' }}
+              onMouseLeave={() => setHoverIdx(null)}
+            >
               <defs>
                 <linearGradient id="ar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#22d3ee" stopOpacity=".45" />
-                  <stop offset="1" stopColor="#8b5cf6" stopOpacity="0" />
+                  <stop offset="0" stopColor="var(--accent)" stopOpacity=".42" />
+                  <stop offset="1" stopColor="var(--accent-2)" stopOpacity="0" />
                 </linearGradient>
               </defs>
+              {[0.25, 0.5, 0.75].map((g) => (
+                <line
+                  key={g}
+                  x1="12"
+                  x2={W - 12}
+                  y1={H * g}
+                  y2={H * g}
+                  stroke="var(--border)"
+                  strokeDasharray="4 4"
+                  strokeWidth="1"
+                />
+              ))}
               <polygon points={area} fill="url(#ar)" />
-              <polyline points={line} fill="none" stroke="#22d3ee" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+              <polyline
+                points={line}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {pts.map(([x, y], i) => (
+                <g key={i} onMouseEnter={() => setHoverIdx(i)} style={{ cursor: 'pointer' }}>
+                  <rect x={x - 10} y="0" width="20" height={H} fill="transparent" />
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={hoverIdx === i ? 5.5 : 2.8}
+                    fill={hoverIdx === i ? 'var(--accent)' : 'var(--surface)'}
+                    stroke="var(--accent)"
+                    strokeWidth="2"
+                  />
+                </g>
+              ))}
             </svg>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', fontSize: 11 }}>
-              <span>{bars[0].label}</span><span>{bars[bars.length - 1].label}</span>
+            <div className="mono" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', fontSize: 11, marginTop: 6 }}>
+              <span>{bars[0].label}</span>
+              <span>{bars[Math.floor(bars.length / 2)]?.label}</span>
+              <span>{bars[bars.length - 1].label}</span>
             </div>
           </>
-        ) : <p style={{ color: 'var(--muted)' }}>No alerts in this range.</p>}
+        ) : (
+          <Empty title="No alerts in this range" note="Try selecting Last 7 days or Last 30 days above." />
+        )}
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+      <div className="grid an-two-col">
         <div className="card">
-          <div className="stat-label" style={{ marginBottom: 12 }}>Severity breakdown</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-            <Donut data={sevData} />
-            <div>
-              {sevData.map((d) => (
-                <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 14 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: d.color }} />
-                  {d.label} <span style={{ color: 'var(--muted)' }}>({d.n})</span>
-                </div>
-              ))}
+          <div className="stat-label" style={{ marginBottom: 14 }}>Severity history · selected range</div>
+          {sevData.length === 0 ? (
+            <Empty title="No severity data" note="No alerts recorded in this time window." />
+          ) : (
+            <div className="an-donut-wrap" style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+              <Donut data={sevData} />
+              <div style={{ flex: 1, minWidth: 160, display: 'grid', gap: 10 }}>
+                {sevData.map((d) => {
+                  const pct = Math.round((d.n / Math.max(1, data.total)) * 100);
+                  return (
+                    <div key={d.label} className="an-sev-row">
+                      <span className="an-sev-dot" style={{ background: d.color }} />
+                      <span style={{ fontWeight: 600 }}>{d.label}</span>
+                      <span className="mono" style={{ marginLeft: 'auto' }}>{d.n.toLocaleString()}</span>
+                      <span className="mono" style={{ color: 'var(--muted)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>
+                        {pct}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="card">
-          <div className="stat-label" style={{ marginBottom: 12 }}>Attack types</div>
+          <div className="stat-label" style={{ marginBottom: 14 }}>Attack signatures history · selected range</div>
           <BarList rows={types} color="linear-gradient(90deg, var(--accent), var(--accent-2))" />
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+      <div className="grid an-two-col">
         <div className="card">
-          <div className="stat-label" style={{ marginBottom: 12 }}>Top attacker sources</div>
+          <div className="stat-label" style={{ marginBottom: 14 }}>Top attacker IPs · selected range</div>
           <BarList rows={data.sources} color="var(--danger)" />
         </div>
         <div className="card">
-          <div className="stat-label" style={{ marginBottom: 12 }}>Most targeted ports</div>
-          <BarList rows={data.top_ports} color="var(--accent-2)" />
+          <div className="stat-label" style={{ marginBottom: 14 }}>Targeted ports · selected range</div>
+          <BarList rows={data.top_ports} color="var(--warn)" prefix="Port " />
         </div>
       </div>
     </div>

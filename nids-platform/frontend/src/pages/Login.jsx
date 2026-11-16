@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import GoogleButton from '../GoogleButton';
@@ -12,6 +12,15 @@ export default function Login() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Clear welcome flag so a fresh login always triggers the post-login radar handshake
+  useEffect(() => {
+    try {
+      Object.keys(sessionStorage).forEach((k) => {
+        if (k.startsWith('nids_welcomed')) sessionStorage.removeItem(k);
+      });
+    } catch { /* ignore */ }
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -28,7 +37,7 @@ export default function Login() {
   }
 
   return (
-    <AuthShell title="Welcome back" sub="Sign in to monitor your network.">
+    <AuthShell title="Welcome back" sub="Sign in to monitor your network in real time.">
       <GoogleButton onSuccess={() => nav('/')} onError={setError} />
       <div className="au-or">or continue with email</div>
       <form onSubmit={submit}>

@@ -7,9 +7,9 @@ export default function NotFound() {
   return (
     <div className="au">
       <div className="au-box" style={{ textAlign: 'center' }}>
-        <div style={{
+        <div className="mono" style={{
           fontSize: 84, fontWeight: 800, lineHeight: 1, marginBottom: 8,
-          background: 'linear-gradient(90deg,#22d3ee,#8b5cf6)',
+          background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
           WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
         }}>404</div>
         <h2>Page not found</h2>

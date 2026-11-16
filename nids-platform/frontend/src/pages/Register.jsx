@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import GoogleButton from '../GoogleButton';
@@ -12,7 +12,7 @@ function strength(p) {
   if (/[^A-Za-z0-9]/.test(p)) s++;
   return s;
 }
-const COLORS = ['#f87171', '#fbbf24', '#38bdf8', '#34d399'];
+const COLORS = ['var(--danger)', 'var(--warn)', 'var(--accent-2)', 'var(--accent)'];
 const LABELS = ['Weak', 'Fair', 'Good', 'Strong'];
 
 export default function Register() {
@@ -21,8 +21,18 @@ export default function Register() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const errRef = useRef(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const sc = strength(f.password);
+  const hasInvalidUsernameChar = /[@.\s]/.test(f.username);
+
+  useEffect(() => {
+    if (error && errRef.current) {
+      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
+        errRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [error]);
 
   async function submit(e) {
     e.preventDefault();
@@ -45,6 +55,14 @@ export default function Register() {
       <form onSubmit={submit}>
         <input className="au-input" placeholder="Username" value={f.username}
           autoComplete="username" onChange={set('username')} />
+        <p className="au-hint" style={{ marginTop: -6, marginBottom: hasInvalidUsernameChar ? 4 : 12 }}>
+          3-20 letters, numbers or _ (no spaces, no @)
+        </p>
+        {hasInvalidUsernameChar && (
+          <p className="au-hint" role="alert" style={{ color: 'var(--danger)', fontWeight: 600, marginBottom: 12 }}>
+            Username cannot contain &quot;@&quot;, &quot;.&quot; or spaces.
+          </p>
+        )}
         <input className="au-input" type="email" placeholder="Email" value={f.email}
           autoComplete="email" onChange={set('email')} />
         <div className="au-pass">
@@ -54,6 +72,9 @@ export default function Register() {
             {show ? 'Hide' : 'Show'}
           </button>
         </div>
+        <p className="au-hint" style={{ marginTop: -6, marginBottom: f.password ? 8 : 12 }}>
+          At least 8 characters, letters and numbers
+        </p>
         {f.password && (
           <>
             <div className="au-meter">
@@ -67,7 +88,11 @@ export default function Register() {
             </p>
           </>
         )}
-        {error && <p className="au-err">{error}</p>}
+        {error && (
+          <div ref={errRef} role="alert" aria-live="assertive" className="au-err" style={{ fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
         <button className="au-btn" disabled={busy || !f.username || !f.email || !f.password}>
           {busy ? 'Creating...' : 'Create account'}
         </button>
