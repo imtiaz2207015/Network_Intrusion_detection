@@ -17,6 +17,7 @@ SECRET = os.environ["JWT_SECRET"]
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_APP_PASSWORD = os.environ.get("SMTP_APP_PASSWORD", "")
+OWNER_EMAIL = os.environ.get("OWNER_EMAIL", "") or SMTP_USER   # support messages go here
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8088").rstrip("/")
 MAX_FAILS = 5
 LOCK_SECONDS = 600
@@ -25,6 +26,10 @@ ROLES = ("admin", "analyst", "viewer")
 CODE_SECONDS = 600
 CODE_COOLDOWN = 60
 CODE_MAX_TRIES = 5
+IP_MAX_FAILS = 15
+IP_WINDOW_SECONDS = 600  # 10 minutes
+REPORT_MAX_PER_HOUR = 5
+GOOGLE_PW_PREFIX = "!google!"
 
 
 def now_iso():
@@ -45,36 +50,47 @@ def init_db():
             time.sleep(1)
     if con is None:
         raise RuntimeError("Database not reachable")
-    cur = con.cursor()
-    cur.execute("SELECT pg_advisory_lock(42)")   # stops 2 workers creating tables at once
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users(
-      id SERIAL PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'viewer',
-      failed_attempts INTEGER NOT NULL DEFAULT 0,
-      locked_until DOUBLE PRECISION NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS login_log(
-      id SERIAL PRIMARY KEY,
-      username TEXT, ip TEXT, success INTEGER, logged_at TEXT);
-    CREATE TABLE IF NOT EXISTS password_resets(
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      token_hash TEXT UNIQUE NOT NULL,
-            expires_at DOUBLE PRECISION NOT NULL);
-    CREATE TABLE IF NOT EXISTS password_change_codes(
-      user_id INTEGER PRIMARY KEY,
-      code_hash TEXT NOT NULL,
-      new_hash TEXT NOT NULL,
-      expires_at DOUBLE PRECISION NOT NULL,
-      sent_at DOUBLE PRECISION NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0);
-    """)
-    con.commit()
-    con.close()
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT pg_advisory_xact_lock(42)")   # stops 2 workers creating tables at once
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+          id SERIAL PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          failed_attempts INTEGER NOT NULL DEFAULT 0,
+          locked_until DOUBLE PRECISION NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS login_log(
+          id SERIAL PRIMARY KEY,
+          username TEXT, ip TEXT, success INTEGER, logged_at TEXT);
+        CREATE TABLE IF NOT EXISTS password_resets(
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          token_hash TEXT UNIQUE NOT NULL,
+          expires_at DOUBLE PRECISION NOT NULL);
+        CREATE TABLE IF NOT EXISTS password_change_codes(
+          user_id INTEGER PRIMARY KEY,
+          code_hash TEXT NOT NULL,
+          new_hash TEXT NOT NULL,
+          expires_at DOUBLE PRECISION NOT NULL,
+          sent_at DOUBLE PRECISION NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS support_messages(
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          username TEXT NOT NULL,
+          email TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          message TEXT NOT NULL,
+          context TEXT,
+          created_at TEXT NOT NULL);
+        """)
+        con.commit()
+    finally:
+        con.close()
 
 
 init_db()
@@ -132,6 +148,19 @@ def valid_password(pw):
     return len(pw) >= 8 and re.search(r"[A-Za-z]", pw) and re.search(r"\d", pw)
 
 
+def is_google_only_pw(pw_hash):
+    return not pw_hash or pw_hash.startswith(GOOGLE_PW_PREFIX)
+
+
+def verify_user_password(pw_hash, pw):
+    if not pw or is_google_only_pw(pw_hash):
+        return False
+    try:
+        return check_password_hash(pw_hash, pw)
+    except ValueError:
+        return False
+
+
 def unique_username(base):
     base = re.sub(r"[^A-Za-z0-9_]", "", base)[:16] or "user"
     if len(base) < 3:
@@ -142,11 +171,15 @@ def unique_username(base):
     return name
 
 
-def send_mail(to, subject, body):
+def send_mail(to, subject, body, reply_to=None):
+    if not SMTP_USER or not SMTP_APP_PASSWORD:
+        raise RuntimeError("SMTP credentials (SMTP_USER / SMTP_APP_PASSWORD) are not configured")
     msg = EmailMessage()
-    msg["From"] = f"NIDS Platform <{SMTP_USER}>"
+    msg["From"] = f"SentinelIQ <{SMTP_USER}>"
     msg["To"] = to
     msg["Subject"] = subject
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.set_content(body)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
         s.login(SMTP_USER, SMTP_APP_PASSWORD)
@@ -193,10 +226,18 @@ def login():
               (username, ip, int(ok), now_iso()))
         db().commit()
 
+    recent_fails = query(
+        "SELECT COUNT(*) AS n FROM login_log "
+        "WHERE ip=%s AND success=0 AND logged_at > %s",
+        (ip, datetime.fromtimestamp(time.time() - IP_WINDOW_SECONDS, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+    ).fetchone()
+    if recent_fails["n"] >= IP_MAX_FAILS:
+        return jsonify(error="Too many failed attempts from this network. Try again later."), 429
+
     if u and u["locked_until"] > time.time():
         log(False)
         return jsonify(error="Account locked. Try again in a few minutes."), 423
-    if not u or not check_password_hash(u["password_hash"], pw):
+    if not u or not verify_user_password(u["password_hash"], pw):
         if u:
             fails = u["failed_attempts"] + 1
             locked = time.time() + LOCK_SECONDS if fails >= MAX_FAILS else 0
@@ -208,7 +249,10 @@ def login():
     query("UPDATE users SET failed_attempts=0, locked_until=0 WHERE id=%s", (u["id"],))
     db().commit()
     log(True)
-    return jsonify(token=make_token(u), user={"username": u["username"], "role": u["role"]})
+    return jsonify(
+        token=make_token(u),
+        user={"username": u["username"], "role": u["role"], "email": u["email"]},
+    )
 
 
 @app.get("/google-config")
@@ -232,28 +276,38 @@ def google_login():
         return jsonify(error="Google email not verified"), 401
     email = info["email"].lower()
     ip = request.headers.get("X-Real-IP", request.remote_addr)
-    u = query("SELECT * FROM users WHERE email=%s", (email,)).fetchone()
+    u = query("SELECT * FROM users WHERE lower(email)=lower(%s)", (email,)).fetchone()
     if not u:
         first = query("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
         role = "admin" if first else "viewer"
         username = unique_username(email.split("@")[0])
-        # random unusable password: Google users sign in with Google (or set one via reset)
-        u = query(
-            "INSERT INTO users(username,email,password_hash,role,created_at) "
-            "VALUES(%s,%s,%s,%s,%s) RETURNING *",
-            (username, email, generate_password_hash(secrets.token_urlsafe(32)),
-             role, now_iso())).fetchone()
+        try:
+            # Marked as Google-created until the user sets a password via Forgot Password
+            u = query(
+                "INSERT INTO users(username,email,password_hash,role,created_at) "
+                "VALUES(%s,%s,%s,%s,%s) RETURNING *",
+                (username, email, GOOGLE_PW_PREFIX + secrets.token_urlsafe(32),
+                 role, now_iso())).fetchone()
+            db().commit()
+        except psycopg2.IntegrityError:
+            db().rollback()
+            u = query("SELECT * FROM users WHERE lower(email)=lower(%s)", (email,)).fetchone()
+            if not u:
+                return jsonify(error="Could not complete Google sign-in. Please try again."), 409
     query("INSERT INTO login_log(username,ip,success,logged_at) VALUES(%s,%s,%s,%s)",
           (u["username"], ip, 1, now_iso()))
     db().commit()
-    return jsonify(token=make_token(u), user={"username": u["username"], "role": u["role"]})
+    return jsonify(
+        token=make_token(u),
+        user={"username": u["username"], "role": u["role"], "email": u["email"]},
+    )
 
 
 @app.post("/forgot-password")
 def forgot_password():
     email = ((request.get_json(silent=True) or {}).get("email") or "").strip().lower()
     reply = jsonify(ok=True, message="If that email is registered, a reset link has been sent.")
-    u = query("SELECT id,username FROM users WHERE email=%s", (email,)).fetchone()
+    u = query("SELECT id,username,email FROM users WHERE lower(email)=lower(%s)", (email,)).fetchone()
     if u:
         token = secrets.token_urlsafe(32)
         th = hashlib.sha256(token.encode()).hexdigest()
@@ -263,7 +317,7 @@ def forgot_password():
         db().commit()
         link = f"{FRONTEND_URL}/reset-password?token={token}"
         try:
-            send_mail(email, "Reset your NIDS password",
+            send_mail(u["email"], "Reset your SentinelIQ password",
                       f"Hi {u['username']},\n\nClick the link below to set a new password. "
                       f"It expires in 15 minutes.\n\n{link}\n\n"
                       "If you did not ask for this, ignore this email.")
@@ -293,13 +347,16 @@ def reset_password():
 @app.get("/me")
 @auth_required()
 def me():
-    return jsonify(username=g.user["username"], role=g.user["role"])
+    u = query("SELECT username,email,role FROM users WHERE id=%s", (int(g.user["sub"]),)).fetchone()
+    if not u:
+        return jsonify(username=g.user["username"], role=g.user["role"])
+    return jsonify(username=u["username"], role=u["role"], email=u["email"])
 
 
 @app.get("/users")
 @auth_required("admin")
 def users():
-    rows = query("SELECT id,username,email,role,created_at FROM users").fetchall()
+    rows = query("SELECT id,username,email,role,created_at FROM users ORDER BY id").fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -309,9 +366,15 @@ def set_role(uid):
     role = (request.get_json(silent=True) or {}).get("role")
     if role not in ROLES:
         return jsonify(error="Role must be admin, analyst or viewer"), 400
-    query("UPDATE users SET role=%s WHERE id=%s", (role, uid))
+    if uid == int(g.user["sub"]) and role != "admin":
+        return jsonify(error="You cannot remove your own admin role"), 400
+    cur = query("UPDATE users SET role=%s WHERE id=%s", (role, uid))
     db().commit()
+    if cur.rowcount == 0:
+        return jsonify(error="User not found"), 404
     return jsonify(ok=True)
+
+
 def hash_code(uid, code):
     return hashlib.sha256(f"{uid}:{code}:{SECRET}".encode()).hexdigest()
 
@@ -322,9 +385,14 @@ def mask_email(e):
 
 
 def check_current(u, current):
+    if is_google_only_pw(u["password_hash"]):
+        return jsonify(
+            error="This account uses Google Sign-In and has no password set yet. "
+                  "Use 'Forgot password' on the login page to set one."
+        ), 400
     if u["locked_until"] > time.time():
         return jsonify(error="Too many wrong attempts. Try again in a few minutes."), 423
-    if not check_password_hash(u["password_hash"], current):
+    if not verify_user_password(u["password_hash"], current):
         fails = u["failed_attempts"] + 1
         locked = time.time() + LOCK_SECONDS if fails >= MAX_FAILS else 0
         query("UPDATE users SET failed_attempts=%s, locked_until=%s WHERE id=%s",
@@ -348,7 +416,7 @@ def change_password_request():
         return bad
     if not valid_password(new):
         return jsonify(error="Password: at least 8 characters with letters and numbers"), 400
-    if check_password_hash(u["password_hash"], new):
+    if verify_user_password(u["password_hash"], new):
         return jsonify(error="New password must be different from the current one"), 400
     row = query("SELECT sent_at FROM password_change_codes WHERE user_id=%s",
                 (u["id"],)).fetchone()
@@ -366,7 +434,7 @@ def change_password_request():
            now + CODE_SECONDS, now))
     db().commit()
     try:
-        send_mail(u["email"], "Your NIDS password change code",
+        send_mail(u["email"], "Your SentinelIQ password change code",
                   f"Hi {u['username']},\n\nYour verification code is: {code}\n\n"
                   "It expires in 10 minutes. If you did not ask to change your "
                   "password, ignore this email and change your password.")
@@ -399,3 +467,50 @@ def change_password_confirm():
     query("DELETE FROM password_change_codes WHERE user_id=%s", (uid,))
     db().commit()
     return jsonify(ok=True)
+
+
+@app.post("/report")
+@auth_required()
+def report_problem():
+    d = request.get_json(silent=True) or {}
+    subject = " ".join(str(d.get("subject") or "").split())   # no newlines in the email subject
+    message = str(d.get("message") or "").strip()
+    context = " ".join(str(d.get("context") or "").split())
+    if not 3 <= len(subject) <= 100:
+        return jsonify(error="Subject must be 3-100 characters"), 400
+    if not 10 <= len(message) <= 1000:
+        return jsonify(error="Message must be 10-1000 characters"), 400
+    if len(context) > 200:
+        return jsonify(error="Related alert/IP is too long (max 200 characters)"), 400
+
+    uid = int(g.user["sub"])
+    u = query("SELECT id,username,email FROM users WHERE id=%s", (uid,)).fetchone()
+    if not u:
+        return jsonify(error="User not found"), 404
+
+    since = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    sent = query("SELECT COUNT(*) AS n FROM support_messages WHERE user_id=%s AND created_at > %s",
+                 (uid, since)).fetchone()["n"]
+    if sent >= REPORT_MAX_PER_HOUR:
+        return jsonify(error="You have sent too many reports. Please try again in an hour."), 429
+
+    row = query(
+        "INSERT INTO support_messages(user_id,username,email,subject,message,context,created_at) "
+        "VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (uid, u["username"], u["email"], subject, message, context or None, now_iso())).fetchone()
+    db().commit()
+
+    emailed = False
+    if OWNER_EMAIL and SMTP_USER and SMTP_APP_PASSWORD:
+        body = (f"New problem report #{row['id']}\n\n"
+                f"From: {u['username']} <{u['email']}> (role: {g.user['role']})\n"
+                f"Related alert/IP: {context or '-'}\n\n"
+                f"{message}\n\n"
+                "Reply to this email to answer the user directly.")
+        try:
+            send_mail(OWNER_EMAIL, f"[SentinelIQ support #{row['id']}] {subject}",
+                      body, reply_to=u["email"])
+            emailed = True
+        except Exception as e:
+            app.logger.error("Support email failed: %s", e)
+    return jsonify(ok=True, id=row["id"], emailed=emailed), 201

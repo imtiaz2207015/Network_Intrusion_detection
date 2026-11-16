@@ -31,6 +31,8 @@ except ValueError:
     AI_DAILY_LIMIT = 100
 AI_ON = bool(ANTHROPIC_API_KEY)
 
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 def connect():
     return psycopg2.connect(DSN, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -73,6 +75,20 @@ def init_db():
     CREATE TABLE IF NOT EXISTS ai_usage(
       day TEXT PRIMARY KEY,
       calls INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS blocked_ips(
+      id SERIAL PRIMARY KEY,
+      ip TEXT NOT NULL,
+      alert_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      blocked_by TEXT NOT NULL,
+      blocked_at TEXT NOT NULL,
+      unblock_note TEXT,
+      unblock_requested_by TEXT,
+      unblock_requested_at TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_ips_active
+      ON blocked_ips(ip) WHERE status IN ('active','unblock_requested');
     """)
     con.commit()
     con.close()
@@ -148,7 +164,7 @@ def claim_email_slot(key):
 def _send_mail(subject, body):
     try:
         msg = EmailMessage()
-        msg["From"] = f"NIDS Platform <{SMTP_USER}>"
+        msg["From"] = f"SentinelIQ <{SMTP_USER}>"
         msg["To"] = ALERT_EMAIL_TO
         msg["Subject"] = subject
         msg.set_content(body)
@@ -161,7 +177,7 @@ def _send_mail(subject, body):
 
 def notify_critical(atype, src, dst, dport, detail, when):
     body = (
-        f"A CRITICAL alert was detected by NIDS.AI.\n\n"
+        f"A CRITICAL alert was detected by SentinelIQ.\n\n"
         f"Type:    {atype}\n"
         f"Source:  {src}\n"
         f"Target:  {dst}\n"
@@ -172,7 +188,7 @@ def notify_critical(atype, src, dst, dport, detail, when):
         f"(Further alerts of this type from this source are muted for "
         f"{EMAIL_COOLDOWN // 60} min.)")
     threading.Thread(target=_send_mail,
-                     args=(f"[NIDS CRITICAL] {atype} from {src}", body),
+                     args=(f"[SentinelIQ CRITICAL] {atype} from {src}", body),
                      daemon=True).start()
 
 
@@ -508,3 +524,160 @@ def set_status(aid):
     if cur.rowcount == 0:
         return jsonify(error="Alert not found"), 404
     return jsonify(ok=True, status=s)
+
+# ---------- IP blocking ----------
+import ipaddress
+
+BLOCK_DEFAULT_MINUTES = 10
+BLOCK_MAX_MINUTES = 1440
+try:
+    BLOCK_MAX_ACTIVE = int(os.environ.get("BLOCK_MAX_ACTIVE") or 20)
+except ValueError:
+    BLOCK_MAX_ACTIVE = 20
+
+BLOCK_ALLOWLIST = set()
+for _x in (os.environ.get("BLOCK_ALLOWLIST") or "").split(","):
+    _x = _x.strip()
+    if _x:
+        try:
+            BLOCK_ALLOWLIST.add(str(ipaddress.ip_address(_x)))
+        except ValueError:
+            pass
+
+LIVE_STATUSES = ("active", "unblock_requested")
+
+
+def init_blocklist():
+    con = connect()
+    cur = con.cursor()
+    cur.execute("SELECT pg_advisory_lock(44)")
+    cur.execute("ALTER TABLE blocked_ips ADD COLUMN IF NOT EXISTS expires_at DOUBLE PRECISION")
+    con.commit()
+    con.close()
+
+
+init_blocklist()
+
+
+def expire_blocks():
+    query("""UPDATE blocked_ips SET status='expired', resolved_by='system', resolved_at=%s
+             WHERE status IN ('active','unblock_requested')
+             AND expires_at IS NOT NULL AND expires_at < %s""",
+          (now_iso(), time.time()))
+    db().commit()
+
+
+def check_blockable(raw):
+    """Returns (clean_ip, error_message)."""
+    try:
+        a = ipaddress.ip_address(raw)
+    except ValueError:
+        return None, "That is not a valid IP address"
+    if a.is_loopback or a.is_unspecified or a.is_multicast or a.is_link_local or a.is_reserved:
+        return None, "This address cannot be blocked"
+    ip = str(a)
+    if ip in BLOCK_ALLOWLIST:
+        return None, "This IP is on the safe list (allowlist) and cannot be blocked"
+    mine = request.headers.get("X-Real-IP", request.remote_addr)
+    if mine and ip == mine:
+        return None, "You cannot block your own IP address"
+    return ip, None
+
+
+@app.post("/block-ip")
+@auth_required()
+def block_ip():
+    d = request.get_json(silent=True) or {}
+    ip, err = check_blockable(str(d.get("ip", "")).strip()[:64])
+    if err:
+        return jsonify(error=err), 400
+    try:
+        minutes = int(d.get("minutes", BLOCK_DEFAULT_MINUTES))
+    except (TypeError, ValueError):
+        minutes = BLOCK_DEFAULT_MINUTES
+    minutes = max(1, min(minutes, BLOCK_MAX_MINUTES))
+    alert_id = d.get("alert_id")
+    try:
+        alert_id = int(alert_id) if alert_id not in (None, "") else None
+    except (TypeError, ValueError):
+        return jsonify(error="alert_id must be a number"), 400
+
+    expire_blocks()
+    live = query("SELECT COUNT(*) AS n FROM blocked_ips WHERE status IN ('active','unblock_requested')"
+                 ).fetchone()["n"]
+    if live >= BLOCK_MAX_ACTIVE:
+        return jsonify(error=f"Too many active blocks (max {BLOCK_MAX_ACTIVE}). Unblock one first."), 429
+    try:
+        row = query(
+            """INSERT INTO blocked_ips(ip,alert_id,status,blocked_by,blocked_at,expires_at)
+               VALUES(%s,%s,'active',%s,%s,%s) RETURNING *""",
+            (ip, alert_id, g.user["username"], now_iso(), time.time() + minutes * 60)).fetchone()
+        db().commit()
+    except psycopg2.IntegrityError:
+        db().rollback()
+        return jsonify(error="This IP is already blocked"), 409
+    out = dict(row)
+    out["seconds_left"] = minutes * 60
+    return jsonify(out), 201
+
+
+@app.get("/blocked-ips")
+@auth_required()
+def list_blocked_ips():
+    expire_blocks()
+    rows = query("SELECT * FROM blocked_ips ORDER BY id DESC LIMIT 200").fetchall()
+    now = time.time()
+    out = []
+    for r in rows:
+        r = dict(r)
+        if r["status"] in LIVE_STATUSES and r.get("expires_at"):
+            r["seconds_left"] = max(0, int(r["expires_at"] - now))
+        else:
+            r["seconds_left"] = None
+        out.append(r)
+    return jsonify(blocked=out)
+
+
+@app.post("/blocked-ips/<int:bid>/unblock")
+@auth_required()
+def unblock(bid):
+    cur = query(
+        """UPDATE blocked_ips SET status='unblocked', resolved_by=%s, resolved_at=%s
+           WHERE id=%s AND status IN ('active','unblock_requested')""",
+        (g.user["username"], now_iso(), bid))
+    db().commit()
+    if cur.rowcount == 0:
+        return jsonify(error="Block not found or already resolved"), 404
+    return jsonify(ok=True)
+
+
+# kept so older buttons keep working
+@app.post("/blocked-ips/<int:bid>/request-unblock")
+@auth_required()
+def request_unblock(bid):
+    note = str((request.get_json(silent=True) or {}).get("note", "")).strip()[:500]
+    cur = query(
+        """UPDATE blocked_ips SET status='unblock_requested',
+           unblock_note=%s, unblock_requested_by=%s, unblock_requested_at=%s
+           WHERE id=%s AND status='active'""",
+        (note, g.user["username"], now_iso(), bid))
+    db().commit()
+    if cur.rowcount == 0:
+        return jsonify(error="Block not found or not active"), 404
+    return jsonify(ok=True)
+
+
+@app.post("/blocked-ips/<int:bid>/approve-unblock")
+@auth_required()
+def approve_unblock(bid):
+    return unblock(bid)
+
+
+@app.get("/blocked-ips/active-for-sensor")
+def active_for_sensor():
+    key = request.headers.get("X-Service-Key", "")
+    if not hmac.compare_digest(key, SENSOR_KEY):
+        return jsonify(error="Unauthorized"), 401
+    expire_blocks()
+    rows = query("SELECT ip FROM blocked_ips WHERE status IN ('active','unblock_requested')").fetchall()
+    return jsonify(ips=[r["ip"] for r in rows], allowlist=sorted(BLOCK_ALLOWLIST))

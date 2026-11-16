@@ -149,10 +149,10 @@ def report_pdf():
     d = collect(hours_arg())
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm, title="NIDS.AI Security Report")
+                            topMargin=2*cm, bottomMargin=2*cm, title="SentinelIQ Security Report")
     st = getSampleStyleSheet()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-    el = [Paragraph("NIDS.AI Security Report", st["Title"]),
+    el = [Paragraph("SentinelIQ Security Report", st["Title"]),
           Paragraph(f"Generated {now} UTC by {g.user['username']}", st["Normal"]),
           Paragraph(f"Period: last {d['hours']} h ({d['range']['from']} to {d['range']['to']}, sensor time)", st["Normal"]),
           Spacer(1, 12)]
@@ -172,4 +172,4 @@ def report_pdf():
     doc.build(el)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                     download_name="nids-report.pdf")
+                     download_name="sentineliq-report.pdf")
