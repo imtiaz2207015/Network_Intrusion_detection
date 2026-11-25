@@ -58,6 +58,27 @@ paths:
       security: [{bearerAuth: []}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [code], properties: {code: {type: string, description: 6-digit code from the email}}}}}}
       responses: {"200": {description: Password changed}, "400": {description: Wrong code, expired code, or too many wrong tries}, "401": {description: Not logged in}}
+  /api/auth/password:
+    put:
+      tags: [Auth]
+      summary: Change the current user's password directly
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: {type: string}
+                new_password: {type: string, minLength: 8}
+      responses:
+        "200": {description: Password updated}
+        "400": {description: Wrong current password or invalid new password}
+        "401": {description: Unauthorized}
+        "423": {description: Account locked due to too many failed attempts}
+        "429": {description: Rate limit exceeded}
   /api/auth/me:
     get:
       tags: [Auth]
@@ -86,7 +107,8 @@ paths:
       parameters:
         - {name: type, in: query, schema: {type: string}}
         - {name: status, in: query, schema: {type: string, enum: [new, investigating, resolved]}}
-        - {name: q, in: query, schema: {type: string}, description: Search source, target or details}
+        - {name: source, in: query, schema: {type: string, enum: [suricata, sensor]}, description: Filter by alert source (suricata or sensor)}
+        - {name: q, in: query, schema: {type: string}, description: Search source, target, details or signature}
         - {name: limit, in: query, schema: {type: integer, default: 50, maximum: 200}}
         - {name: offset, in: query, schema: {type: integer, default: 0}}
       responses: {"200": {description: Alerts and total}, "401": {description: Unauthorized}}
@@ -105,9 +127,9 @@ paths:
   /api/alerts/ingest:
     post:
       tags: [Alerts]
-      summary: Sensor posts a detected attack (needs X-Service-Key)
+      summary: Sensor or Suricata forwarder posts a detected attack (needs X-Service-Key)
       security: [{sensorKey: []}]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [type, src], properties: {type: {type: string}, src: {type: string}, dst: {type: string}, dport: {type: string}, detail: {type: string}, time: {type: string}}}}}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [type, src], properties: {type: {type: string}, src: {type: string}, dst: {type: string}, dport: {type: string}, detail: {type: string}, time: {type: string}, source: {type: string, enum: [sensor, suricata, ml, rule]}, signature: {type: string}, signature_id: {type: integer}}}}}}
       responses: {"201": {description: Alert stored}, "400": {description: type and src required}, "401": {description: Bad sensor key}}
   /api/alerts/heartbeat:
     post:
@@ -133,6 +155,83 @@ paths:
         - {name: aid, in: path, required: true, schema: {type: integer}}
         - {name: refresh, in: query, schema: {type: string, enum: ["1"]}, description: Admin or analyst only, asks Claude again}
       responses: {"200": {description: what, risk, steps}, "401": {description: Unauthorized}, "404": {description: Alert not found}}
+  /api/alerts/chat:
+    post:
+      tags: [Alerts]
+      summary: Context-aware AI Chat (Groq; includes caller's recent alert summaries and SHAP/rule reasons)
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: {type: string, minLength: 1, maxLength: 500}
+                window_minutes: {type: integer, minimum: 1, maximum: 1440, default: 10}
+      responses:
+        "200": {description: Assistant reply, daily usage count, time window, and saved messages}
+        "400": {description: Empty or oversized message (>500 characters)}
+        "401": {description: Unauthorized}
+        "429": {description: Per-user daily message limit reached}
+        "503": {description: Groq service unavailable or rate-limited}
+  /api/alerts/chat/history:
+    get:
+      tags: [Alerts]
+      summary: Get the current user's last 30 Security Assistant chat messages
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: List of chat messages in chronological order}
+        "401": {description: Unauthorized}
+    delete:
+      tags: [Alerts]
+      summary: Clear the current user's Security Assistant chat history
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Chat history cleared}
+        "401": {description: Unauthorized}
+  /api/alerts/chat/usage:
+    get:
+      tags: [Alerts]
+      summary: Get the current user's daily Security Assistant usage
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Object with used and limit counts}
+        "401": {description: Unauthorized}
+  /api/alerts/protection:
+    get:
+      tags: [Alerts]
+      summary: Get the current user's IP protection mode (auto vs manual)
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Protection settings (user_id, mode)}
+        "401": {description: Unauthorized}
+    put:
+      tags: [Alerts]
+      summary: Update the current user's IP protection mode (auto vs manual)
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: {type: string, enum: [auto, manual], default: auto}
+      responses:
+        "200": {description: Updated protection mode}
+        "400": {description: Validation error}
+        "401": {description: Unauthorized}
+  /api/alerts/auto-block/audit:
+    get:
+      tags: [Alerts]
+      summary: Get the current user's last 50 automatic IP blocking and skipped decisions
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: List of audit entries}
+        "401": {description: Unauthorized}
   /api/analytics/summary:
     get:
       tags: [Analytics]

@@ -2,3 +2,8 @@ flask
 PyJWT
 gunicorn
 psycopg2-binary
+requests
+shap
+scikit-learn==1.9.1
+joblib
+numpy

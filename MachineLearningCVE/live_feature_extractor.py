@@ -11,13 +11,25 @@ import csv
 import json
 import threading
 import socket
+import urllib.error
 import urllib.request
 from datetime import datetime
 
 # ---------------- Alert output ----------------
 ALERT_FILE = "alerts.csv"
-ALERT_API = os.environ.get("ALERT_API", "http://127.0.0.1:8088/api/alerts/ingest")
-SENSOR_KEY = os.environ.get("SENSOR_KEY", "")
+SERVER_URL = os.environ.get("SERVER_URL", "").strip().rstrip("/")
+ALERT_API = (
+    f"{SERVER_URL}/api/ingest/alerts"
+    if SERVER_URL
+    else os.environ.get("ALERT_API", "http://127.0.0.1:8088/api/ingest/alerts")
+)
+SENSOR_KEY = os.environ.get("SENSOR_KEY", "").strip()
+HEARTBEAT_INTERVAL = max(5, int(os.environ.get("HEARTBEAT_INTERVAL", "30") or 30))
+ALERT_QUEUE_FILE = os.environ.get("ALERT_QUEUE_FILE", "alert_queue.jsonl")
+QUEUE_BATCH_SIZE = 50
+QUEUE_MAX_ITEMS = 10000
+_queue_lock = threading.Lock()
+_queue_wakeup = threading.Event()
 last_alert = {}
 seen_flows = set()
 
@@ -38,22 +50,151 @@ TRUSTED_IPS = {x.strip() for x in os.environ.get("TRUSTED_IPS", "").split(",") i
 IGNORE_SRC = local_ips() | TRUSTED_IPS
 START_TIME = time.time()
 packet_count = 0
-HEARTBEAT_API = ALERT_API.replace("/ingest", "/heartbeat")
+HEARTBEAT_API = (
+    f"{SERVER_URL}/api/ingest/heartbeat"
+    if SERVER_URL
+    else ALERT_API.replace("/api/ingest/alerts", "/api/ingest/heartbeat").replace("/ingest", "/heartbeat")
+)
+
+
+def _sensor_headers():
+    return {
+        "Content-Type": "application/json",
+        "X-Sensor-Key": SENSOR_KEY,
+    }
+
+
+def _read_queue_file(path=None):
+    qpath = path or ALERT_QUEUE_FILE
+    if not os.path.exists(qpath):
+        return []
+    items = []
+    with open(qpath, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    items.append(obj)
+            except json.JSONDecodeError:
+                continue
+    return items
+
+
+def _write_queue_file(items, path=None):
+    qpath = path or ALERT_QUEUE_FILE
+    parent = os.path.dirname(os.path.abspath(qpath))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = qpath + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for obj in items[-QUEUE_MAX_ITEMS:]:
+            f.write(json.dumps(obj, separators=(",", ":")) + "\n")
+    os.replace(tmp, qpath)
+
+
+def _append_queue_file(payload, path=None):
+    qpath = path or ALERT_QUEUE_FILE
+    parent = os.path.dirname(os.path.abspath(qpath))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(qpath, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+
+
+def _send_alert_batch(batch):
+    body = {"alerts": batch} if ALERT_API.rstrip("/").endswith("/ingest/alerts") else batch[0]
+    req = urllib.request.Request(
+        ALERT_API,
+        data=json.dumps(body).encode("utf-8"),
+        headers=_sensor_headers(),
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    try:
+        if hasattr(resp, "read"):
+            resp.read()
+    finally:
+        if hasattr(resp, "close"):
+            resp.close()
+
+
+def flush_alert_queue(path=None):
+    """Flush queued alerts in FIFO order. Returns (sent_count, remaining_count, retry_backoff_hint)."""
+    if not SENSOR_KEY:
+        return 0, 0, None
+    sent_total = 0
+    while True:
+        with _queue_lock:
+            items = _read_queue_file(path)
+            if not items:
+                return sent_total, 0, None
+            batch = items[:QUEUE_BATCH_SIZE]
+            rest = items[QUEUE_BATCH_SIZE:]
+        try:
+            _send_alert_batch(batch)
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 422):
+                print(f"[WARN] Dropping invalid queued alert batch (HTTP {e.code})")
+                with _queue_lock:
+                    cur = _read_queue_file(path)
+                    _write_queue_file(cur[len(batch):], path)
+                continue
+            if e.code in (401, 403):
+                print(f"[ERROR] Sensor key rejected by server (HTTP {e.code}); check SENSOR_KEY")
+                return sent_total, len(items), 30.0
+            print(f"[WARN] Server error flushing alert queue (HTTP {e.code}); will retry")
+            return sent_total, len(items), None
+        except Exception as e:
+            print(f"[WARN] Could not flush alert queue ({e}); will retry")
+            return sent_total, len(items), None
+
+        with _queue_lock:
+            cur = _read_queue_file(path)
+            remaining = cur[len(batch):]
+            _write_queue_file(remaining, path)
+            sent_total += len(batch)
+            if not remaining:
+                return sent_total, 0, None
+
+
+def queue_flush_loop():
+    backoff = 1.0
+    while True:
+        sent, remaining, hint = flush_alert_queue()
+        if remaining == 0:
+            backoff = 1.0
+            _queue_wakeup.wait(timeout=5.0)
+            _queue_wakeup.clear()
+        else:
+            if hint is not None:
+                backoff = min(300.0, max(hint, backoff * 2.0))
+            else:
+                backoff = min(60.0, max(1.0, backoff * 2.0))
+            _queue_wakeup.wait(timeout=backoff)
+            _queue_wakeup.clear()
 
 
 def heartbeat_loop():
     while True:
         try:
-            payload = {"host": socket.gethostname(), "packets": packet_count,
-                       "uptime": int(time.time() - START_TIME)}
+            payload = {
+                "host": socket.gethostname(),
+                "packets": packet_count,
+                "uptime": int(time.time() - START_TIME),
+            }
             req = urllib.request.Request(
-                HEARTBEAT_API, data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json", "X-Service-Key": SENSOR_KEY},
-                method="POST")
-            urllib.request.urlopen(req, timeout=3).close()
+                HEARTBEAT_API,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=_sensor_headers(),
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5).close()
         except Exception:
-            pass          # platform down: just try again in 10s
-        time.sleep(10)
+            pass          # platform down: try again on next interval
+        time.sleep(HEARTBEAT_INTERVAL)
 UDP_NOISE_PORTS = {53, 123, 137, 138, 1900, 5353, 5355}   # DNS, NTP, NetBIOS, SSDP, mDNS, LLMNR
 ML_MIN_CONF = float(os.environ.get("ML_MIN_CONF", "0.80"))   # ignore ML alerts below 80% confidence
 outbound_udp = {}        # (remote_ip, remote_port, local_port) -> last time we sent to it
@@ -70,21 +211,36 @@ def is_noise_dst(ip):
 
 
 def post_alert(payload):
-    """Send one alert to the platform's Alert service (runs in a background thread)."""
+    """Send one alert to the server; queue locally on failure to preserve FIFO order."""
     if not SENSOR_KEY:
         return
+    with _queue_lock:
+        queued = _read_queue_file()
+        if queued:
+            _append_queue_file(payload)
+            _queue_wakeup.set()
+            return
     try:
-        req = urllib.request.Request(
-            ALERT_API,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "X-Service-Key": SENSOR_KEY},
-            method="POST")
-        urllib.request.urlopen(req, timeout=3).close()
+        _send_alert_batch([payload])
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 422):
+            print(f"[WARN] Dropping invalid alert payload (HTTP {e.code})")
+            return
+        with _queue_lock:
+            _append_queue_file(payload)
+        _queue_wakeup.set()
+        if e.code in (401, 403):
+            print(f"[ERROR] Sensor key rejected (HTTP {e.code}); queued alert locally")
+        else:
+            print(f"[WARN] Server returned HTTP {e.code}; queued alert locally")
     except Exception as e:
-        print(f"[WARN] could not send alert to platform: {e}")
+        with _queue_lock:
+            _append_queue_file(payload)
+        _queue_wakeup.set()
+        print(f"[WARN] Could not send alert to server ({e}); queued locally")
 
 
-def log_alert(attack_type, src, dst, dport, detail=""):
+def log_alert(attack_type, src, dst, dport, detail="", *, source=None, features=None, predicted_class=None, rule=None):
     key = (attack_type, src, dport)
     now = time.time()
     if now - last_alert.get(key, 0) < 10:   # same alert at most once per 10s
@@ -100,11 +256,27 @@ def log_alert(attack_type, src, dst, dport, detail=""):
             w.writerow(["time", "type", "src", "dst", "dport", "detail"])
         w.writerow([ts, attack_type, src, dst, dport, detail])
 
-    # 2) platform Alert service (non-blocking)
+    # 2) platform Alert service (non-blocking; optional SHAP/rule metadata)
+    payload = {
+        "time": ts,
+        "type": attack_type,
+        "src": src,
+        "dst": dst,
+        "dport": str(dport),
+        "detail": detail,
+    }
+    if source:
+        payload["source"] = source
+    if isinstance(features, dict):
+        payload["features"] = features
+    if predicted_class is not None:
+        payload["predicted_class"] = predicted_class
+    if isinstance(rule, dict):
+        payload["rule"] = rule
+
     threading.Thread(
         target=post_alert,
-        args=({"time": ts, "type": attack_type, "src": src, "dst": dst,
-               "dport": str(dport), "detail": detail},),
+        args=(payload,),
         daemon=True).start()
 
     print(f"[ATTACK - {attack_type}] {src} -> {dst}:{dport} {detail}")
@@ -112,7 +284,8 @@ def log_alert(attack_type, src, dst, dport, detail=""):
 
 # ---------------- Load model ----------------
 print("Loading model...")
-saved = joblib.load("selected_features_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selected_features_model.pkl")
+saved = joblib.load(MODEL_PATH)
 model = saved['model']
 features = saved['features']
 print("Model loaded. Features expected:", len(features))
@@ -143,7 +316,16 @@ def check_port_scan(src_ip, dst_port):
     distinct_ports = set(p for p, t in port_scan_tracker[src_ip])
     if len(distinct_ports) >= SCAN_PORT_THRESHOLD:
         if src_ip not in already_flagged:
-            log_alert("PortScan", src_ip, "-", "-", f"{len(distinct_ports)} ports in {SCAN_WINDOW}s")
+            obs = f"{len(distinct_ports)} ports in {SCAN_WINDOW}s"
+            log_alert(
+                "PortScan", src_ip, "-", "-", obs,
+                source="rule",
+                rule={
+                    "name": "PortScan",
+                    "condition": f">= {SCAN_PORT_THRESHOLD} distinct destination ports within {SCAN_WINDOW}s",
+                    "observed": obs,
+                },
+            )
             already_flagged.add(src_ip)
         return True
     else:
@@ -161,19 +343,45 @@ dos_already_flagged = set()
 brute_force_tracker = defaultdict(list)
 BRUTE_WINDOW = 10            # seconds
 BRUTE_SYN_THRESHOLD = 8      # >=8 SYNs to a service port in 10s = brute force
-BRUTE_FORCE_PORTS = {21, 22, 23, 25, 80, 443, 3306, 3389, 5432, 5900, 8080, 9999}
+BRUTE_FORCE_PORTS = {21, 22, 23, 3389, 9999}
 brute_already_flagged = set()
+
+
+def _is_port_scan_flagged(src_ip, now):
+    """True while src_ip is actively flagged as a PortScan within SCAN_WINDOW."""
+    if src_ip not in already_flagged:
+        return False
+    if src_ip in port_scan_tracker:
+        port_scan_tracker[src_ip] = [
+            (p, t) for (p, t) in port_scan_tracker[src_ip] if now - t <= SCAN_WINDOW
+        ]
+        if len({p for p, _ in port_scan_tracker[src_ip]}) >= SCAN_PORT_THRESHOLD:
+            return True
+    already_flagged.discard(src_ip)
+    return False
 
 
 def check_dos_syn_flood(src_ip, dst_ip):
     """>=100 SYNs from a single source IP within 5s, any destination port."""
     now = time.time()
+    if _is_port_scan_flagged(src_ip, now):
+        dos_already_flagged.discard(src_ip)
+        return False
     dos_syn_tracker[src_ip].append(now)
     dos_syn_tracker[src_ip] = [t for t in dos_syn_tracker[src_ip] if now - t <= DOS_WINDOW]
     count = len(dos_syn_tracker[src_ip])
     if count >= DOS_SYN_THRESHOLD:
         if src_ip not in dos_already_flagged:
-            log_alert("DoS/SYN Flood", src_ip, dst_ip, "any", f"{count} SYNs in {DOS_WINDOW}s")
+            obs = f"{count} SYNs in {DOS_WINDOW}s"
+            log_alert(
+                "DoS/SYN Flood", src_ip, dst_ip, "any", obs,
+                source="rule",
+                rule={
+                    "name": "DoS/SYN Flood",
+                    "condition": f">= {DOS_SYN_THRESHOLD} pure TCP SYN packets from one source within {DOS_WINDOW}s",
+                    "observed": obs,
+                },
+            )
             dos_already_flagged.add(src_ip)
         return True
     else:
@@ -192,7 +400,16 @@ def check_brute_force(src_ip, dst_ip, dst_port):
     attempts = len(brute_force_tracker[key])
     if attempts >= BRUTE_SYN_THRESHOLD:
         if key not in brute_already_flagged:
-            log_alert("BruteForce", src_ip, dst_ip, dst_port, f"{attempts} SYNs in {BRUTE_WINDOW}s")
+            obs = f"{attempts} SYNs in {BRUTE_WINDOW}s"
+            log_alert(
+                "BruteForce", src_ip, dst_ip, dst_port, obs,
+                source="rule",
+                rule={
+                    "name": "BruteForce",
+                    "condition": f">= {BRUTE_SYN_THRESHOLD} pure TCP SYN packets to login service port {dst_port} within {BRUTE_WINDOW}s",
+                    "observed": obs,
+                },
+            )
             brute_already_flagged.add(key)
         return True
     else:
@@ -221,7 +438,16 @@ def check_icmp_flood(src_ip, dst_ip):
     count = len(icmp_tracker[src_ip])
     if count >= ICMP_THRESHOLD:
         if src_ip not in icmp_already_flagged:
-            log_alert("ICMP Flood", src_ip, dst_ip, "-", f"{count} ICMP packets in {ICMP_WINDOW}s")
+            obs = f"{count} ICMP packets in {ICMP_WINDOW}s"
+            log_alert(
+                "ICMP Flood", src_ip, dst_ip, "-", obs,
+                source="rule",
+                rule={
+                    "name": "ICMP Flood",
+                    "condition": f">= {ICMP_THRESHOLD} ICMP packets from one source within {ICMP_WINDOW}s",
+                    "observed": obs,
+                },
+            )
             icmp_already_flagged.add(src_ip)
         return True
     else:
@@ -237,7 +463,16 @@ def check_udp_flood(src_ip, dst_ip, dst_port):
     count = len(udp_tracker[src_ip])
     if count >= UDP_THRESHOLD:
         if src_ip not in udp_already_flagged:
-            log_alert("UDP Flood", src_ip, dst_ip, dst_port, f"{count} UDP packets in {UDP_WINDOW}s")
+            obs = f"{count} UDP packets in {UDP_WINDOW}s"
+            log_alert(
+                "UDP Flood", src_ip, dst_ip, dst_port, obs,
+                source="rule",
+                rule={
+                    "name": "UDP Flood",
+                    "condition": f">= {UDP_THRESHOLD} unsolicited UDP packets from one source within {UDP_WINDOW}s",
+                    "observed": obs,
+                },
+            )
             udp_already_flagged.add(src_ip)
         return True
     else:
@@ -275,6 +510,7 @@ def cleanup(now):
         port_scan_tracker[k] = [(p, t) for (p, t) in port_scan_tracker[k] if now - t <= SCAN_WINDOW]
         if not port_scan_tracker[k]:
             del port_scan_tracker[k]
+            already_flagged.discard(k)
 
 
 # ---------------- Flow features ----------------
@@ -426,8 +662,15 @@ def process_packet(pkt):
                  or is_noise_dst(key[0]) or is_noise_dst(key[1]))
         if label == "ATTACK":
             if not noise and conf >= ML_MIN_CONF:
-                log_alert("ML-Detected", src, dst, key[3],
-                          f"pkts={total_pkts}, confidence={conf:.0%}")
+                clean_feat = {f: float(feat[f]) for f in features}
+                pred_val = int(pred) if isinstance(pred, (int, np.integer)) else str(pred)
+                log_alert(
+                    "ML-Detected", src, dst, key[3],
+                    f"pkts={total_pkts}, confidence={conf:.0%}",
+                    source="ml",
+                    features=clean_feat,
+                    predicted_class=pred_val,
+                )
         elif key not in seen_flows:
             seen_flows.add(key)
             print(f"[BENIGN] {src} <-> {dst}:{key[3]} ({key[4]})")
@@ -436,5 +679,6 @@ def process_packet(pkt):
 if __name__ == "__main__":
     if SENSOR_KEY:
         threading.Thread(target=heartbeat_loop, daemon=True).start()
+        threading.Thread(target=queue_flush_loop, daemon=True).start()
     print("Starting live capture... (Ctrl+C to stop)")
     sniff(prn=process_packet, store=False)

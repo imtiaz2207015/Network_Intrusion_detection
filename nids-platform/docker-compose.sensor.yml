@@ -1,0 +1,25 @@
+services:
+  sensor:
+    build:
+      context: ../MachineLearningCVE
+      dockerfile: Dockerfile.sensor
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - SERVER_URL=${SERVER_URL:?SERVER_URL is required (e.g. https://nids.example.com)}
+      - SENSOR_KEY=${SENSOR_KEY:?SENSOR_KEY is required}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-30}
+      - ALERT_QUEUE_FILE=/data/alert_queue.jsonl
+      - EVE_PATH=/var/log/suricata/eve.json
+      - STATE_PATH=/data/suricata_state.json
+      - TRUSTED_IPS=${TRUSTED_IPS:-}
+      - ML_MIN_CONF=${ML_MIN_CONF:-0.80}
+    volumes:
+      - sensor_queue:/data
+      - /var/log/suricata:/var/log/suricata:ro
+
+volumes:
+  sensor_queue:

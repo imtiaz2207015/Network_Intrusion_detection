@@ -1,11 +1,5 @@
 .lp {
-  background:
-    radial-gradient(900px 520px at 82% 6%, var(--accent-soft), transparent 62%),
-    radial-gradient(750px 480px at 8% 28%, var(--ok-soft), transparent 62%),
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px),
-    var(--bg);
-  background-size: auto, auto, 48px 48px, 48px 48px, auto;
+  background: var(--page);
   color: var(--text);
   min-height: 100vh;
   min-height: 100dvh;
@@ -54,7 +48,7 @@
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   color: var(--accent);
-  box-shadow: 0 0 16px var(--accent-glow);
+  box-shadow: none;
 }
 
 .lp-links {
@@ -120,13 +114,13 @@
   border-radius: 10px;
 }
 .lp-btn.primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: var(--accent);
   color: var(--btn-text);
-  box-shadow: 0 6px 24px var(--accent-glow);
+  box-shadow: none;
 }
 .lp-btn.primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 30px var(--accent-glow);
+  box-shadow: none;
 }
 .lp-btn.ghost {
   border: 1px solid var(--border);
@@ -135,7 +129,7 @@
 }
 .lp-btn.ghost:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 18px var(--accent-glow);
+  box-shadow: none;
 }
 
 /* 2. Hero Section */
@@ -169,7 +163,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 10px var(--accent);
+  box-shadow: none;
   animation: lpPulse 1.8s infinite;
 }
 @keyframes lpPulse {
@@ -185,10 +179,7 @@
 }
 .lp-hero h1 em {
   font-style: normal;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
 }
 .lp-hero p {
   color: var(--muted);
@@ -221,7 +212,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 18px;
-  box-shadow: var(--shadow-lg), 0 0 40px var(--accent-soft);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   transition: border-color 0.25s, box-shadow 0.25s;
 }
@@ -538,7 +529,7 @@
 }
 .lp-pipe-node.active {
   border-color: var(--accent);
-  box-shadow: 0 0 28px var(--accent-glow);
+  box-shadow: none;
   transform: translateY(-4px);
 }
 .lp-pipe-top {
@@ -558,7 +549,7 @@
   border: 1px solid var(--border);
 }
 .lp-pipe-node.active .lp-pipe-num {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: var(--accent);
   color: var(--btn-text);
   border-color: transparent;
 }
@@ -628,7 +619,7 @@
 .lp-attack-card:hover {
   transform: translateY(-4px);
   border-color: var(--accent-border);
-  box-shadow: 0 0 26px var(--accent-glow);
+  box-shadow: none;
 }
 .lp-attack-top {
   display: flex;
@@ -702,7 +693,7 @@
 .lp-ai-tab.active {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: 0 0 18px var(--accent-glow);
+  box-shadow: none;
 }
 .lp-ai-tab-top {
   display: flex;
@@ -811,7 +802,7 @@
 }
 .lp-model-card.featured {
   border-color: var(--accent-border);
-  box-shadow: 0 0 28px var(--accent-soft);
+  box-shadow: none;
 }
 .lp-model-card:hover {
   transform: translateY(-4px);
@@ -879,7 +870,7 @@
 .lp-model-bar > div {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: var(--accent);
 }
 
 /* 8. Footer */

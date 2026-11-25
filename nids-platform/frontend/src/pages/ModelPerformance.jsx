@@ -166,7 +166,7 @@ export default function ModelPerformance() {
 
       <div className="card">
         <div className="stat-label" style={{ marginBottom: 12 }}>
-          Confusion matrix (green = correct, red = errors)
+          Confusion matrix (teal = correct, red = errors)
         </div>
         <Matrix model={model} />
       </div>
@@ -187,7 +187,7 @@ export default function ModelPerformance() {
                 <div style={{ color: 'var(--muted)', fontSize: 11 }}>
                   Recall <span className="mono">{pct(c.recall)}</span>
                 </div>
-                <Bar value={c.recall} color="var(--accent-2)" />
+                <Bar value={c.recall} color="var(--accent)" />
               </div>
               <span className="mono mp-class-f1">F1 {c.f1.toFixed(2)}</span>
               <span className="mono mp-class-sup" style={{ color: 'var(--muted)' }}>n = {num(c.support)}</span>

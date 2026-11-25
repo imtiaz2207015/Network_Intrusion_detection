@@ -1,20 +1,40 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBlockedIps, formatRemaining } from '../BlockedIps';
-import { formatTimestamp, formatAbsoluteTime, timeAgo } from '../format';
+import { formatTimeParts, formatAbsoluteTime } from '../format';
+import { plainName } from '../utils';
+import { useAuth } from '../AuthContext';
 import { Skeleton, ErrorBox, Empty } from '../ui';
 
 const HISTORY_PAGE_SIZE = 10;
 
-function reasonOf(r) {
-  if (r.reason) return r.reason;
-  if (r.attack_type) return r.attack_type;
-  if (r.type) return r.type;
-  if (r.alert_id) return `Alert #${r.alert_id}`;
-  return 'Manual block';
+function parseReasonDisplay(r) {
+  const raw = String(r.reason || r.attack_type || r.type || '').trim();
+  if (!raw) {
+    return {
+      title: 'Manual block',
+      sub: '',
+    };
+  }
+  // Extract leading attack token from patterns like "PortScan (Alert #14)" or "BruteForce x3 in 10 min (repeat offender, 24 h)"
+  const baseAttack = raw.replace(/\s*\(Alert\s*#\d+\)\s*$/i, '').split(/\s+x\d+\b/i)[0].trim();
+  const friendly = plainName(baseAttack);
+  const cleanedRaw = raw.replace(/\s*\(Alert\s*#\d+\)\s*$/i, '').trim();
+  const showSub = cleanedRaw && cleanedRaw.toLowerCase() !== friendly.toLowerCase();
+  return {
+    title: friendly,
+    sub: showSub ? cleanedRaw : '',
+  };
+}
+
+function sourceOf(r) {
+  const s = String(r.source || (r.blocked_by === 'auto' ? 'auto' : 'manual')).toLowerCase();
+  return s === 'auto' ? 'auto' : 'manual';
 }
 
 export default function BlockedIps() {
+  const { user } = useAuth();
+  const isViewer = String(user?.role || '').toLowerCase() === 'viewer';
   const {
     loading,
     error,
@@ -62,38 +82,12 @@ export default function BlockedIps() {
   }
 
   return (
-    <div className="blk-page" style={{ display: 'grid', gap: 16 }}>
-      {/* a) Page Title & Subtitle */}
+    <div className="blk-page" style={{ display: 'grid', gap: 18 }}>
       <div>
         <h2>Blocked IPs</h2>
         <p className="band-sub">
-          Source IPs on the blocklist, with live expiration countdowns.
+          Devices currently blocked from your network and past block history.
         </p>
-      </div>
-
-      {/* b) Small Summary Row: Active, Expired, Unblocked */}
-      <div className="blk-summary-row">
-        <div className="card blk-summary-card">
-          <span className="stat-label">Active</span>
-          <b
-            className="mono blk-summary-val"
-            style={{ color: activeList.length > 0 ? 'var(--danger)' : 'var(--muted)' }}
-          >
-            {activeList.length}
-          </b>
-        </div>
-        <div className="card blk-summary-card">
-          <span className="stat-label">Expired</span>
-          <b className="mono blk-summary-val" style={{ color: 'var(--warn)' }}>
-            {expiredCount}
-          </b>
-        </div>
-        <div className="card blk-summary-card">
-          <span className="stat-label">Unblocked</span>
-          <b className="mono blk-summary-val" style={{ color: 'var(--accent-2)' }}>
-            {unblockedCount}
-          </b>
-        </div>
       </div>
 
       {error && <ErrorBox message={error} />}
@@ -115,13 +109,13 @@ export default function BlockedIps() {
         </div>
       )}
 
-      {/* c) Active Blocks List */}
+      {/* Active Blocks */}
       <section className="card blk-section-card" aria-labelledby="active-blocks-heading">
         <div className="band-head">
           <div>
             <h3 id="active-blocks-heading">Active blocks</h3>
             <p className="band-sub">
-              Currently active blocklist entries with real-time expiration timers.
+              IP addresses currently blocked, with live expiration timers.
             </p>
           </div>
           <span className="badge mono">{activeList.length} active</span>
@@ -129,7 +123,7 @@ export default function BlockedIps() {
 
         {loading ? (
           <div style={{ display: 'grid', gap: 10 }}>
-            {[0, 1, 2].map((i) => <Skeleton key={i} h={46} r={10} />)}
+            {[0, 1, 2].map((i) => <Skeleton key={i} h={46} r={8} />)}
           </div>
         ) : activeList.length === 0 ? (
           <div className="blk-empty">
@@ -141,7 +135,7 @@ export default function BlockedIps() {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ margin: 0, color: 'var(--text)', fontWeight: 500 }}>
-                No IPs are blocked. You can block a source IP from any alert on the Alerts page.
+                No IPs are blocked. You can block a suspicious device from any alert on the Alerts page.
               </p>
             </div>
             <Link to="/alerts" className="btn sm" style={{ whiteSpace: 'nowrap' }}>
@@ -150,57 +144,71 @@ export default function BlockedIps() {
           </div>
         ) : (
           <>
-            {/* Desktop Table */}
+            {/* Desktop Table (clean 5 columns) */}
             <div className="table-scroll-wrap blk-desktop-table">
               <table className="table">
                 <thead>
                   <tr>
                     <th>IP Address</th>
-                    <th>Blocked By</th>
-                    <th>Reason / Source</th>
+                    <th>Reason</th>
+                    <th>Blocked</th>
                     <th>Time Left</th>
-                    <th style={{ textAlign: 'right' }}>Action</th>
+                    {!isViewer && <th style={{ textAlign: 'right' }}>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {activeList.map((r) => {
-                    const leftStr = formatRemaining(r.liveSeconds);
+                    const leftStr = formatRemaining(r.liveSeconds, r.status);
                     const isExpired = leftStr === 'expired';
+                    const srcMode = sourceOf(r);
+                    const reason = parseReasonDisplay(r);
+                    const tp = formatTimeParts(r.blocked_at);
                     return (
                       <tr key={r.id}>
-                        <td className="mono" style={{ fontWeight: 600 }}>
-                          {r.ip}
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="mono" style={{ fontWeight: 600 }}>{r.ip}</span>
+                            <span className={'blk-source-badge mono ' + srcMode}>
+                              {srcMode === 'auto' ? 'Auto' : 'Manual'}
+                            </span>
+                          </div>
                         </td>
                         <td>
-                          <span>{r.blocked_by || '—'}</span>
+                          <span className="alert-plain-title">{reason.title}</span>
+                          <div className="alerts-type-subline">
+                            {reason.sub && <span className="alert-tech-sub">{reason.sub}</span>}
+                            {r.alert_id && (
+                              <Link to={`/alerts?alert=${r.alert_id}`} className="blk-alert-link mono" style={{ fontSize: 12 }}>
+                                Alert #{r.alert_id} →
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <span style={{ display: 'block', fontSize: 13 }}>{r.blocked_by || '—'}</span>
                           {r.blocked_at && (
-                            <span
-                              className="mono"
-                              title={formatAbsoluteTime(r.blocked_at)}
-                              style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}
-                            >
-                              · {formatTimestamp(r.blocked_at)}
+                            <span className="alerts-time-age mono" title={formatAbsoluteTime(r.blocked_at)}>
+                              {tp.date}{tp.age ? ` · ${tp.age}` : ''}
                             </span>
                           )}
                         </td>
-                        <td className="mono" style={{ color: 'var(--muted)' }}>
-                          {reasonOf(r)}
-                        </td>
-                        <td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <span className={'blk-countdown mono' + (isExpired ? ' expired' : '')}>
                             {leftStr}
                           </span>
                         </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            className="btn ghost sm blk-unblock-btn"
-                            onClick={() => unblockIp(r)}
-                            aria-label={`Unblock ${r.ip}`}
-                          >
-                            Unblock
-                          </button>
-                        </td>
+                        {!isViewer && (
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="btn ghost sm blk-unblock-btn"
+                              onClick={() => unblockIp(r)}
+                              aria-label={`Unblock ${r.ip}`}
+                            >
+                              Unblock
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -208,42 +216,55 @@ export default function BlockedIps() {
               </table>
             </div>
 
-            {/* Mobile Stacked Cards (<= 768px) */}
+            {/* Mobile Stacked Cards */}
             <div className="blk-mobile-cards">
               {activeList.map((r) => {
-                const leftStr = formatRemaining(r.liveSeconds);
+                const leftStr = formatRemaining(r.liveSeconds, r.status);
                 const isExpired = leftStr === 'expired';
+                const srcMode = sourceOf(r);
+                const reason = parseReasonDisplay(r);
+                const tp = formatTimeParts(r.blocked_at);
                 return (
                   <div key={r.id} className="blk-mobile-card">
                     <div className="blk-mobile-top">
-                      <span className="mono blk-mobile-ip">{r.ip}</span>
-                    </div>
-                    <div className="blk-mobile-status-row">
-                      <span className="status-pill investigating">
-                        <i /> active
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span className="mono blk-mobile-ip">{r.ip}</span>
+                        <span className={'blk-source-badge mono ' + srcMode}>
+                          {srcMode === 'auto' ? 'Auto' : 'Manual'}
+                        </span>
+                      </div>
                       <span className={'blk-countdown mono' + (isExpired ? ' expired' : '')}>
                         {leftStr}
                       </span>
                     </div>
+                    <div style={{ marginTop: 2 }}>
+                      <span className="alert-plain-title">{reason.title}</span>
+                      {reason.sub && <span className="alert-tech-sub">{reason.sub}</span>}
+                    </div>
                     <div className="blk-mobile-meta">
                       <span>Blocked by <b>{r.blocked_by || '—'}</b></span>
-                      <span className="mono">{reasonOf(r)}</span>
-                      {r.blocked_at && (
-                        <span className="mono" title={formatAbsoluteTime(r.blocked_at)}>
-                          {formatTimestamp(r.blocked_at)}
-                        </span>
+                      {r.alert_id && (
+                        <Link to={`/alerts?alert=${r.alert_id}`} className="mono blk-alert-link">
+                          Alert #{r.alert_id} →
+                        </Link>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      className="btn ghost sm blk-unblock-btn"
-                      style={{ width: '100%', marginTop: 4 }}
-                      onClick={() => unblockIp(r)}
-                      aria-label={`Unblock ${r.ip}`}
-                    >
-                      Unblock
-                    </button>
+                    {r.blocked_at && (
+                      <div className="blk-mobile-meta mono" title={formatAbsoluteTime(r.blocked_at)}>
+                        <span>{tp.date}{tp.age ? ` · ${tp.age}` : ''}</span>
+                      </div>
+                    )}
+                    {!isViewer && (
+                      <button
+                        type="button"
+                        className="btn ghost sm blk-unblock-btn"
+                        style={{ width: '100%', marginTop: 6 }}
+                        onClick={() => unblockIp(r)}
+                        aria-label={`Unblock ${r.ip}`}
+                      >
+                        Unblock
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -252,13 +273,13 @@ export default function BlockedIps() {
         )}
       </section>
 
-      {/* d) History Section */}
+      {/* History Section */}
       <section className="card blk-section-card" aria-labelledby="history-blocks-heading">
         <div className="band-head">
           <div>
             <h3 id="history-blocks-heading">History</h3>
             <p className="band-sub">
-              Previously blocked source IPs that have expired or been manually unblocked.
+              Previously blocked devices that have expired or been unblocked.
             </p>
           </div>
           <div className="alerts-sev-row" role="group" aria-label="Filter block history" style={{ margin: 0 }}>
@@ -286,58 +307,71 @@ export default function BlockedIps() {
 
         {loading ? (
           <div style={{ display: 'grid', gap: 10 }}>
-            {[0, 1, 2].map((i) => <Skeleton key={i} h={42} r={10} />)}
+            {[0, 1, 2].map((i) => <Skeleton key={i} h={42} r={8} />)}
           </div>
         ) : filteredHistory.length === 0 ? (
           <Empty
-            icon="🕓"
             title={sortedHistory.length === 0 ? 'No block history yet' : `No ${histFilter} entries`}
-            note="Expired and manually unblocked IPs will be logged here newest first."
+            note="Expired and manually unblocked IPs will appear here newest first."
           />
         ) : (
           <>
-            {/* Desktop History Table */}
+            {/* Desktop History Table (clean 5 columns) */}
             <div className="table-scroll-wrap blk-desktop-table">
               <table className="table">
                 <thead>
                   <tr>
                     <th>IP Address</th>
+                    <th>Reason</th>
                     <th>Status</th>
-                    <th>Blocked By</th>
+                    <th>Activity</th>
                     <th>Time</th>
-                    <th>Age</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleHistory.map((h) => {
                     const stamp = h.resolved_at || h.blocked_at;
                     const st = String(h.status || 'expired').toLowerCase();
+                    const srcMode = sourceOf(h);
+                    const reason = parseReasonDisplay(h);
+                    const tp = formatTimeParts(stamp);
                     return (
                       <tr key={h.id}>
-                        <td className="mono" style={{ fontWeight: 600 }}>
-                          {h.ip}
-                          {h.alert_id ? (
-                            <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>
-                              (Alert #{h.alert_id})
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="mono" style={{ fontWeight: 600 }}>{h.ip}</span>
+                            <span className={'blk-source-badge mono ' + srcMode}>
+                              {srcMode === 'auto' ? 'Auto' : 'Manual'}
                             </span>
-                          ) : null}
+                          </div>
                         </td>
                         <td>
+                          <span className="alert-plain-title">{reason.title}</span>
+                          <div className="alerts-type-subline">
+                            {reason.sub && <span className="alert-tech-sub">{reason.sub}</span>}
+                            {h.alert_id && (
+                              <Link to={`/alerts?alert=${h.alert_id}`} className="blk-alert-link mono" style={{ fontSize: 12 }}>
+                                Alert #{h.alert_id} →
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <span className={'blk-history-badge mono ' + st}>{st}</span>
                         </td>
                         <td>
-                          <span>{h.blocked_by || '—'}</span>
+                          <span style={{ display: 'block', fontSize: 13 }}>
+                            Blocked by {h.blocked_by || '—'}
+                          </span>
                           {h.resolved_by && (
-                            <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 6 }}>
-                              ({st} by {h.resolved_by})
+                            <span className="alert-tech-sub">
+                              {st} by {h.resolved_by}
                             </span>
                           )}
                         </td>
-                        <td className="mono" title={formatAbsoluteTime(stamp)}>
-                          {stamp ? formatAbsoluteTime(stamp) : '—'}
-                        </td>
-                        <td className="mono" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                          {stamp ? timeAgo(stamp) : '—'}
+                        <td className="mono alerts-time-cell" title={formatAbsoluteTime(stamp)}>
+                          <span className="alerts-time-main">{tp.date}</span>
+                          {tp.age && <span className="alerts-time-age">{tp.age}</span>}
                         </td>
                       </tr>
                     );
@@ -346,28 +380,43 @@ export default function BlockedIps() {
               </table>
             </div>
 
-            {/* Mobile History Cards (<= 768px) */}
+            {/* Mobile History Cards */}
             <div className="blk-mobile-cards">
               {visibleHistory.map((h) => {
                 const stamp = h.resolved_at || h.blocked_at;
                 const st = String(h.status || 'expired').toLowerCase();
+                const srcMode = sourceOf(h);
+                const reason = parseReasonDisplay(h);
+                const tp = formatTimeParts(stamp);
                 return (
                   <div key={h.id} className="blk-mobile-card">
                     <div className="blk-mobile-top">
-                      <span className="mono blk-mobile-ip">{h.ip}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span className="mono blk-mobile-ip">{h.ip}</span>
+                        <span className={'blk-source-badge mono ' + srcMode}>
+                          {srcMode === 'auto' ? 'Auto' : 'Manual'}
+                        </span>
+                      </div>
                       <span className={'blk-history-badge mono ' + st}>{st}</span>
+                    </div>
+                    <div style={{ marginTop: 2 }}>
+                      <span className="alert-plain-title">{reason.title}</span>
+                      {reason.sub && <span className="alert-tech-sub">{reason.sub}</span>}
                     </div>
                     <div className="blk-mobile-meta">
                       <span>
                         Blocked by <b>{h.blocked_by || '—'}</b>
                         {h.resolved_by ? ` · ${st} by ${h.resolved_by}` : ''}
                       </span>
-                      {h.alert_id && <span className="mono">Alert #{h.alert_id}</span>}
+                      {h.alert_id && (
+                        <Link to={`/alerts?alert=${h.alert_id}`} className="mono blk-alert-link">
+                          Alert #{h.alert_id} →
+                        </Link>
+                      )}
                     </div>
                     {stamp && (
-                      <div className="blk-mobile-meta mono" style={{ justifyContent: 'space-between' }}>
-                        <span>{formatAbsoluteTime(stamp)}</span>
-                        <span>{timeAgo(stamp)}</span>
+                      <div className="blk-mobile-meta mono" title={formatAbsoluteTime(stamp)}>
+                        <span>{tp.date}{tp.age ? ` · ${tp.age}` : ''}</span>
                       </div>
                     )}
                   </div>

@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpcap0.8 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir scapy numpy scikit-learn joblib
+
+# Copy ML sensor agent, Suricata eve.json forwarder, and trained ML model files
+COPY live_feature_extractor.py suricata_forwarder.py ./
+COPY selected_features_model.pkl multiclass_model.pkl random_forest_model.pkl isolation_forest_model.pkl ./
+
+ENV PYTHONUNBUFFERED=1
+ENV ALERT_QUEUE_FILE=/data/alert_queue.jsonl
+ENV EVE_PATH=/var/log/suricata/eve.json
+ENV STATE_PATH=/data/suricata_state.json
+ENV HEARTBEAT_INTERVAL=30
+
+VOLUME ["/data"]
+
+# Start the Suricata eve.json reader in the background and run the live ML/rules sensor in the foreground
+CMD ["sh", "-c", "python suricata_forwarder.py & exec python live_feature_extractor.py"]

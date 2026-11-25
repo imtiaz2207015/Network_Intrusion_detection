@@ -608,7 +608,7 @@ export default function Landing() {
 
           <div className="lp-ai-terminal">
             <div className="lp-ai-term-head">
-              <span className="lp-ai-badge mono">✦ Explained by AI Assistant</span>
+              <span className="lp-ai-badge mono">Explained by AI Assistant</span>
               <span className="mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
                 Alert #{currentAi.id} · {currentAi.src}
               </span>

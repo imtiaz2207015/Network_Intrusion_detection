@@ -76,34 +76,34 @@ def hours_arg():
         return 24
 
 
-def collect(hours):
-    """Stats for the last N hours, counted back from NOW in the sensor's timezone."""
+def collect(hours, owner_user_id):
+    """Stats for the last N hours for the caller's sensor only, counted back from NOW in the sensor's timezone."""
     blen = 16 if hours <= 1 else 13 if hours <= 24 else 10
     bucket = {16: "minute", 13: "hour", 10: "day"}[blen]
     end = datetime.now(ZoneInfo(SENSOR_TZ)).replace(tzinfo=None)
     m = end.strftime(FMT)
     start = (end - timedelta(hours=hours)).strftime(FMT)
-    p = (start,)
+    p = (owner_user_id, start)
     by_type = {r["type"]: r["n"] for r in query(
-        "SELECT type, COUNT(*) AS n FROM alerts WHERE time >= %s GROUP BY type ORDER BY n DESC", p)}
+        "SELECT type, COUNT(*) AS n FROM alerts WHERE owner_user_id = %s AND time >= %s GROUP BY type ORDER BY n DESC", p)}
     by_sev = {}
     for t, n in by_type.items():
         by_sev[sev(t)] = by_sev.get(sev(t), 0) + n
     sources = [[r["src"], r["n"]] for r in query(
-        "SELECT src, COUNT(*) AS n FROM alerts WHERE time >= %s GROUP BY src ORDER BY n DESC LIMIT 5", p)]
+        "SELECT src, COUNT(*) AS n FROM alerts WHERE owner_user_id = %s AND time >= %s GROUP BY src ORDER BY n DESC LIMIT 5", p)]
     top_ports = [[r["dport"], r["n"]] for r in query(
-        "SELECT dport, COUNT(*) AS n FROM alerts WHERE time >= %s AND dport NOT IN ('-','') "
+        "SELECT dport, COUNT(*) AS n FROM alerts WHERE owner_user_id = %s AND time >= %s AND dport NOT IN ('-','') "
         "GROUP BY dport ORDER BY n DESC LIMIT 5", p)]
     top_targets = [[r["dst"], r["n"]] for r in query(
-        "SELECT dst, COUNT(*) AS n FROM alerts WHERE time >= %s AND dst NOT IN ('-','') "
+        "SELECT dst, COUNT(*) AS n FROM alerts WHERE owner_user_id = %s AND time >= %s AND dst NOT IN ('-','') "
         "GROUP BY dst ORDER BY n DESC LIMIT 5", p)]
     u = query("SELECT COUNT(DISTINCT src) AS s, COUNT(DISTINCT NULLIF(NULLIF(dst,'-'),'')) AS t "
-              "FROM alerts WHERE time >= %s", p).fetchone()
+              "FROM alerts WHERE owner_user_id = %s AND time >= %s", p).fetchone()
     timeline = [{"hour": r["h"], "count": r["n"]} for r in query(
-        "SELECT SUBSTRING(time,1,%s) AS h, COUNT(*) AS n FROM alerts WHERE time >= %s GROUP BY h ORDER BY h",
-        (blen, start))]
+        "SELECT SUBSTRING(time,1,%s) AS h, COUNT(*) AS n FROM alerts WHERE owner_user_id = %s AND time >= %s GROUP BY h ORDER BY h",
+        (blen, owner_user_id, start))]
     recent = [dict(r) for r in query(
-        "SELECT time, type, src, dst, dport FROM alerts WHERE time >= %s ORDER BY id DESC LIMIT 15", p)]
+        "SELECT time, type, src, dst, dport FROM alerts WHERE owner_user_id = %s AND time >= %s ORDER BY id DESC LIMIT 15", p)]
     return dict(hours=hours, range={"from": start, "to": m}, bucket=bucket,
                 total=sum(by_type.values()), by_type=by_type, by_severity=by_sev,
                 sources=sources, top_ports=top_ports, top_targets=top_targets,
@@ -114,7 +114,7 @@ def collect(hours):
 @app.get("/summary")
 @auth_required()
 def summary():
-    return jsonify(collect(hours_arg()))
+    return jsonify(collect(hours_arg(), int(g.user["sub"])))
 
 
 def pdf_table(data, widths=None):
@@ -146,7 +146,7 @@ def bar_chart(by_type):
 @app.get("/report.pdf")
 @auth_required()
 def report_pdf():
-    d = collect(hours_arg())
+    d = collect(hours_arg(), int(g.user["sub"]))
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm, title="SentinelIQ Security Report")

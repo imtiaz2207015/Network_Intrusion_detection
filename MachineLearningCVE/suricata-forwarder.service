@@ -1,0 +1,17 @@
+[Unit]
+Description=SentinelIQ Suricata eve.json Alert Forwarder
+After=network-online.target suricata.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/nids-sensor.env
+StateDirectory=suricata-forwarder
+ExecStart=/usr/bin/python3 /opt/nids-sensor/suricata_forwarder.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

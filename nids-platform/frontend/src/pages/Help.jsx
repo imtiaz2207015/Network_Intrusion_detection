@@ -6,7 +6,8 @@ import { SENSOR_OFFLINE_GUIDE } from '../helpText';
 
 const FAQS = [
   {
-    id: 'sensor-offline',
+    id: 'offline',
+    aliases: ['sensor-offline'],
     q: 'Sensor shows Offline',
     a: SENSOR_OFFLINE_GUIDE.subtitle,
     steps: SENSOR_OFFLINE_GUIDE.steps,
@@ -37,8 +38,10 @@ export default function Help() {
   const { token } = useAuth();
   const { hash } = useLocation();
   const reportRef = useRef(null);
+  const collapseTimerRef = useRef(null);
 
-  const [openIdx, setOpenIdx] = useState(0);
+  const [openIdx, setOpenIdx] = useState(-1);
+  const [reportOpen, setReportOpen] = useState(() => hash === '#report');
 
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
@@ -49,19 +52,35 @@ export default function Help() {
   const [errMsg, setErrMsg] = useState('');
 
   useEffect(() => {
-    if (hash === '#report' && reportRef.current) {
-      reportRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
+    return () => {
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hash === '#report') {
+      setReportOpen(true);
+      const t = setTimeout(() => {
+        if (reportRef.current) {
+          reportRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 40);
+      return () => clearTimeout(t);
     }
     if (hash) {
       const targetId = hash.slice(1);
-      const faqIdx = FAQS.findIndex((item) => item.id === targetId);
+      const faqIdx = FAQS.findIndex(
+        (item) => item.id === targetId || (item.aliases && item.aliases.includes(targetId))
+      );
       if (faqIdx !== -1) {
         setOpenIdx(faqIdx);
-        const el = document.getElementById(targetId);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        const itemId = FAQS[faqIdx].id;
+        setTimeout(() => {
+          const el = document.getElementById(itemId);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 40);
       }
     }
   }, [hash]);
@@ -91,6 +110,11 @@ export default function Help() {
 
     if (subjectErr || messageErr || contextErr) return;
 
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+
     setSending(true);
     try {
       await api('/report', {
@@ -107,8 +131,14 @@ export default function Help() {
       setMessage('');
       setContext('');
       setTouched({ subject: false, message: false, context: false });
+      collapseTimerRef.current = setTimeout(() => {
+        setReportOpen(false);
+        setOkMsg('');
+        collapseTimerRef.current = null;
+      }, 2000);
     } catch (err) {
       setErrMsg(err.message || 'Could not send report. Please try again.');
+      setReportOpen(true);
     } finally {
       setSending(false);
     }
@@ -189,118 +219,165 @@ export default function Help() {
           </div>
         </section>
 
-        {/* 2) Report a Problem Card */}
-        <section id="report" ref={reportRef} className="card help-report-card" aria-labelledby="report-heading">
-          <div style={{ marginBottom: 14 }}>
-            <div id="report-heading" className="stat-label" style={{ marginBottom: 4 }}>
-              Report a problem
+        {/* 2) Report a Problem Card (Collapsed by default, expandable on click) */}
+        <section
+          id="report"
+          ref={reportRef}
+          className={'card help-report-card' + (reportOpen ? ' open' : '')}
+          aria-labelledby="report-heading"
+        >
+          <button
+            id="report-trigger-btn"
+            type="button"
+            className="help-report-trigger"
+            aria-expanded={reportOpen}
+            aria-controls="report-form-region"
+            onClick={() => {
+              if (collapseTimerRef.current) {
+                clearTimeout(collapseTimerRef.current);
+                collapseTimerRef.current = null;
+              }
+              setReportOpen((o) => !o);
+            }}
+          >
+            <span className="help-report-icon" aria-hidden="true">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </span>
+            <span className="help-report-head-text">
+              <span id="report-heading" className="help-report-title">
+                Report a problem
+              </span>
+              <span className="help-report-sub">
+                Need more help? Tell us what happened.
+              </span>
+            </span>
+            <span className={'faq-chev' + (reportOpen ? ' open' : '')} aria-hidden="true">
+              ▾
+            </span>
+          </button>
+
+          <div
+            id="report-form-region"
+            role="region"
+            aria-labelledby="report-heading"
+            aria-hidden={!reportOpen}
+            className={'help-report-collapse' + (reportOpen ? ' open' : '')}
+          >
+            <div className="help-report-inner">
+              <form onSubmit={onSubmit} noValidate className="help-form">
+                <div className="help-field">
+                  <div className="help-label-row">
+                    <label htmlFor="report-subject">Subject</label>
+                    <span className="mono help-counter">{subject.length}/100</span>
+                  </div>
+                  <input
+                    id="report-subject"
+                    className="input"
+                    type="text"
+                    maxLength={100}
+                    placeholder="e.g. Sensor stays offline after reboot"
+                    value={subject}
+                    disabled={sending}
+                    onChange={(e) => {
+                      setSubject(e.target.value);
+                      if (okMsg) setOkMsg('');
+                    }}
+                    onBlur={() => setTouched((t) => ({ ...t, subject: true }))}
+                    aria-invalid={touched.subject && !!subjectErr}
+                  />
+                  {touched.subject && subjectErr && (
+                    <small className="help-inline-err" role="alert">{subjectErr}</small>
+                  )}
+                </div>
+
+                <div className="help-field">
+                  <div className="help-label-row">
+                    <label htmlFor="report-message">Message</label>
+                    <span className={'mono help-counter' + (message.length > 1000 ? ' over' : '')}>
+                      {message.length}/1000
+                    </span>
+                  </div>
+                  <textarea
+                    id="report-message"
+                    className="input help-textarea"
+                    rows={5}
+                    maxLength={1000}
+                    placeholder="Tell us what you saw, which page you were on, and any steps you tried (10–1000 characters)..."
+                    value={message}
+                    disabled={sending}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      if (okMsg) setOkMsg('');
+                    }}
+                    onBlur={() => setTouched((t) => ({ ...t, message: true }))}
+                    aria-invalid={touched.message && !!messageErr}
+                  />
+                  {touched.message && messageErr && (
+                    <small className="help-inline-err" role="alert">{messageErr}</small>
+                  )}
+                </div>
+
+                <div className="help-field">
+                  <div className="help-label-row">
+                    <label htmlFor="report-context">
+                      Related alert or IP <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <span className="mono help-counter">{context.length}/200</span>
+                  </div>
+                  <input
+                    id="report-context"
+                    className="input mono"
+                    type="text"
+                    maxLength={200}
+                    placeholder="e.g. Alert #42 or 10.129.51.85"
+                    value={context}
+                    disabled={sending}
+                    onChange={(e) => {
+                      setContext(e.target.value);
+                      if (okMsg) setOkMsg('');
+                    }}
+                    onBlur={() => setTouched((t) => ({ ...t, context: true }))}
+                    aria-invalid={touched.context && !!contextErr}
+                  />
+                  {touched.context && contextErr && (
+                    <small className="help-inline-err" role="alert">{contextErr}</small>
+                  )}
+                </div>
+
+                {okMsg && (
+                  <div className="help-banner ok" role="status">
+                    <span>✓</span>
+                    <span>{okMsg}</span>
+                  </div>
+                )}
+
+                {errMsg && (
+                  <div className="help-banner err" role="alert">
+                    <span>!</span>
+                    <span>{errMsg}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                  <button type="submit" className="btn help-submit-btn" disabled={sending}>
+                    {sending && <span className="help-spinner" aria-hidden="true" />}
+                    <span>{sending ? 'Sending...' : 'Send report'}</span>
+                  </button>
+                </div>
+              </form>
             </div>
-            <p className="band-sub">
-              Need more help? Describe what happened below and our team will reply to your account email.
-            </p>
           </div>
-
-          <form onSubmit={onSubmit} noValidate className="help-form">
-            <div className="help-field">
-              <div className="help-label-row">
-                <label htmlFor="report-subject">Subject</label>
-                <span className="mono help-counter">{subject.length}/100</span>
-              </div>
-              <input
-                id="report-subject"
-                className="input"
-                type="text"
-                maxLength={100}
-                placeholder="e.g. Sensor stays offline after reboot"
-                value={subject}
-                disabled={sending}
-                onChange={(e) => {
-                  setSubject(e.target.value);
-                  if (okMsg) setOkMsg('');
-                }}
-                onBlur={() => setTouched((t) => ({ ...t, subject: true }))}
-                aria-invalid={touched.subject && !!subjectErr}
-              />
-              {touched.subject && subjectErr && (
-                <small className="help-inline-err" role="alert">{subjectErr}</small>
-              )}
-            </div>
-
-            <div className="help-field">
-              <div className="help-label-row">
-                <label htmlFor="report-message">Message</label>
-                <span className={'mono help-counter' + (message.length > 1000 ? ' over' : '')}>
-                  {message.length}/1000
-                </span>
-              </div>
-              <textarea
-                id="report-message"
-                className="input help-textarea"
-                rows={5}
-                maxLength={1000}
-                placeholder="Tell us what you saw, which page you were on, and any steps you tried (10–1000 characters)..."
-                value={message}
-                disabled={sending}
-                onChange={(e) => {
-                  setMessage(e.target.value);
-                  if (okMsg) setOkMsg('');
-                }}
-                onBlur={() => setTouched((t) => ({ ...t, message: true }))}
-                aria-invalid={touched.message && !!messageErr}
-              />
-              {touched.message && messageErr && (
-                <small className="help-inline-err" role="alert">{messageErr}</small>
-              )}
-            </div>
-
-            <div className="help-field">
-              <div className="help-label-row">
-                <label htmlFor="report-context">
-                  Related alert or IP <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <span className="mono help-counter">{context.length}/200</span>
-              </div>
-              <input
-                id="report-context"
-                className="input mono"
-                type="text"
-                maxLength={200}
-                placeholder="e.g. Alert #42 or 10.129.51.85"
-                value={context}
-                disabled={sending}
-                onChange={(e) => {
-                  setContext(e.target.value);
-                  if (okMsg) setOkMsg('');
-                }}
-                onBlur={() => setTouched((t) => ({ ...t, context: true }))}
-                aria-invalid={touched.context && !!contextErr}
-              />
-              {touched.context && contextErr && (
-                <small className="help-inline-err" role="alert">{contextErr}</small>
-              )}
-            </div>
-
-            {okMsg && (
-              <div className="help-banner ok" role="status">
-                <span>✓</span>
-                <span>{okMsg}</span>
-              </div>
-            )}
-
-            {errMsg && (
-              <div className="help-banner err" role="alert">
-                <span>!</span>
-                <span>{errMsg}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-              <button type="submit" className="btn help-submit-btn" disabled={sending}>
-                {sending && <span className="help-spinner" aria-hidden="true" />}
-                <span>{sending ? 'Sending...' : 'Send report'}</span>
-              </button>
-            </div>
-          </form>
         </section>
       </div>
     </div>

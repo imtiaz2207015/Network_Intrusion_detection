@@ -1,31 +1,36 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { usePolling } from './utils';
+import { usePolling, plainName } from './utils';
 import { alertsApi } from './api';
 import { useAuth } from './AuthContext';
-import { formatTimestamp, formatAbsoluteTime } from './format';
+import { formatTimeParts, formatAbsoluteTime } from './format';
 
 const LIVE_STATUSES = new Set(['active', 'unblock_requested']);
 
 export const DURATION_OPTIONS = [
-  { value: 10, label: '10 min (default)' },
-  { value: 30, label: '30 min' },
   { value: 60, label: '1 hour' },
-  { value: 360, label: '6 hours' },
   { value: 1440, label: '24 hours' },
+  { value: 10080, label: '7 days' },
+  { value: 0, label: 'Until I unblock' },
 ];
 
 export function isCurrentlyBlocked(status) {
   return LIVE_STATUSES.has(status);
 }
 
-export function formatRemaining(sec) {
-  if (sec === null || sec === undefined) return '—';
+export function formatRemaining(sec, status) {
+  if (sec === null || sec === undefined) {
+    return isCurrentlyBlocked(status) ? 'Until unblocked' : '—';
+  }
   if (sec <= 0) return 'expired';
   const s = Math.floor(sec);
-  const h = Math.floor(s / 3600);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   const r = s % 60;
+  if (d > 0) {
+    return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
+  }
   if (h > 0) {
     return `${h}h ${String(m).padStart(2, '0')}m ${String(r).padStart(2, '0')}s`;
   }
@@ -174,7 +179,7 @@ export function useBlockedIps() {
 
 export function BlockIpModal({ target, onClose, onBlocked }) {
   const { token } = useAuth();
-  const [minutes, setMinutes] = useState(10);
+  const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const dialogRef = useRef(null);
@@ -182,7 +187,7 @@ export function BlockIpModal({ target, onClose, onBlocked }) {
 
   useEffect(() => {
     if (!target) return;
-    setMinutes(10);
+    setMinutes(60);
     setErr('');
     setBusy(false);
 
@@ -265,8 +270,7 @@ export function BlockIpModal({ target, onClose, onBlocked }) {
       >
         <div className="blk-modal-head">
           <div>
-            <span className="mono blk-modal-kicker">DEFENSIVE CONTAINMENT</span>
-            <h3 id="blk-modal-title">Block Source IP</h3>
+            <h3 id="blk-modal-title" style={{ margin: 0 }}>Block IP address</h3>
           </div>
           <button
             type="button"
@@ -281,11 +285,11 @@ export function BlockIpModal({ target, onClose, onBlocked }) {
 
         <form onSubmit={handleConfirm} className="blk-modal-body">
           <div className="blk-target-box">
-            <small className="mono">TARGET SOURCE IP</small>
+            <small>IP address</small>
             <strong className="mono">{target.ip}</strong>
             {target.alertId && (
-              <span className="mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
-                Triggered by Alert #{target.alertId}
+              <span className="mono" style={{ color: 'var(--text-2)', fontSize: 12 }}>
+                From Alert #{target.alertId}
               </span>
             )}
           </div>
@@ -347,7 +351,7 @@ export function BlockIpModal({ target, onClose, onBlocked }) {
 
 export function BlockedIpChip({ blockRow }) {
   if (!blockRow) return null;
-  const label = formatRemaining(blockRow.liveSeconds);
+  const label = formatRemaining(blockRow.liveSeconds, blockRow.status);
   return (
     <span className="blk-active-chip mono" title={`Blocked by ${blockRow.blocked_by || 'user'}`}>
       <span className="blk-chip-dot" aria-hidden="true" />
@@ -357,6 +361,8 @@ export function BlockedIpChip({ blockRow }) {
 }
 
 export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked-ips' }) {
+  const { user } = useAuth();
+  const isViewer = String(user?.role || '').toLowerCase() === 'viewer';
   const internalState = useBlockedIps();
   const state = blockedState || internalState;
   const { activeList, historyList, toastErr, clearToast, unblockIp } = state;
@@ -371,7 +377,7 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
         <div>
           <h3 id={`${id}-heading`}>Blocked IPs</h3>
           <p className="band-sub">
-            Source IPs on the blocklist, with live expiration countdowns.
+            Devices currently blocked from reaching your network.
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -413,7 +419,7 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
           </div>
           <div>
             <strong>No IPs are blocked</strong>
-            <p>You can block any suspicious source IP directly from an alert in the Alerts page.</p>
+            <p>You can block any suspicious device directly from the Alerts page.</p>
           </div>
         </div>
       ) : (
@@ -424,52 +430,57 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
               <thead>
                 <tr>
                   <th>IP Address</th>
-                  <th>Blocked By</th>
+                  <th>Reason</th>
+                  <th>Blocked</th>
                   <th>Time Left</th>
-                  <th style={{ textAlign: 'right' }}>Action</th>
+                  {!isViewer && <th style={{ textAlign: 'right' }}>Action</th>}
                 </tr>
               </thead>
               <tbody>
                 {visibleActive.map((r) => {
-                  const leftStr = formatRemaining(r.liveSeconds);
+                  const leftStr = formatRemaining(r.liveSeconds, r.status);
                   const isExpired = leftStr === 'expired';
+                  const tp = formatTimeParts(r.blocked_at);
+                  const rawReason = r.reason || r.attack_type || r.type || 'Manual block';
+                  const cleanTitle = plainName(rawReason.split(' (')[0].split(' x')[0]);
                   return (
                     <tr key={r.id}>
-                      <td className="mono" style={{ fontWeight: 600 }}>
+                      <td className="mono" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
                         {r.ip}
-                        {r.alert_id ? (
-                          <span style={{ color: 'var(--muted)', fontSize: 11.5, marginLeft: 8 }}>
-                            (Alert #{r.alert_id})
-                          </span>
-                        ) : null}
                       </td>
                       <td>
-                        <span>{r.blocked_by || '—'}</span>
-                        {r.blocked_at && (
-                          <span
-                            className="mono"
-                            title={formatAbsoluteTime(r.blocked_at)}
-                            style={{ color: 'var(--muted)', fontSize: 11.5, marginLeft: 8 }}
-                          >
-                            · {formatTimestamp(r.blocked_at)}
-                          </span>
+                        <span className="alert-plain-title">{cleanTitle}</span>
+                        {r.alert_id && (
+                          <Link to={`/alerts?alert=${r.alert_id}`} className="alert-tech-sub" style={{ color: 'var(--accent)' }}>
+                            Alert #{r.alert_id} →
+                          </Link>
                         )}
                       </td>
                       <td>
+                        <span style={{ display: 'block', fontSize: 13 }}>{r.blocked_by || '—'}</span>
+                        {r.blocked_at && (
+                          <span className="alerts-time-age mono" title={formatAbsoluteTime(r.blocked_at)}>
+                            {tp.date}{tp.age ? ` · ${tp.age}` : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <span className={'blk-countdown mono' + (isExpired ? ' expired' : '')}>
                           {leftStr}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          className="btn ghost sm blk-unblock-btn"
-                          onClick={() => unblockIp(r)}
-                          aria-label={`Unblock ${r.ip}`}
-                        >
-                          Unblock
-                        </button>
-                      </td>
+                      {!isViewer && (
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            className="btn ghost sm blk-unblock-btn"
+                            onClick={() => unblockIp(r)}
+                            aria-label={`Unblock ${r.ip}`}
+                          >
+                            Unblock
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -480,8 +491,11 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
           {/* Mobile Cards (<= 640px) */}
           <div className="blk-mobile-cards">
             {visibleActive.map((r) => {
-              const leftStr = formatRemaining(r.liveSeconds);
+              const leftStr = formatRemaining(r.liveSeconds, r.status);
               const isExpired = leftStr === 'expired';
+              const tp = formatTimeParts(r.blocked_at);
+              const rawReason = r.reason || r.attack_type || r.type || 'Manual block';
+              const cleanTitle = plainName(rawReason.split(' (')[0].split(' x')[0]);
               return (
                 <div key={r.id} className="blk-mobile-card">
                   <div className="blk-mobile-top">
@@ -490,23 +504,28 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
                       {leftStr}
                     </span>
                   </div>
+                  <div style={{ marginTop: 2 }}>
+                    <span className="alert-plain-title">{cleanTitle}</span>
+                  </div>
                   <div className="blk-mobile-meta">
                     <span>Blocked by <b>{r.blocked_by || '—'}</b></span>
                     {r.blocked_at && (
                       <span className="mono" title={formatAbsoluteTime(r.blocked_at)}>
-                        {formatTimestamp(r.blocked_at)}
+                        {tp.date}{tp.age ? ` · ${tp.age}` : ''}
                       </span>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className="btn ghost sm blk-unblock-btn"
-                    style={{ width: '100%', marginTop: 6 }}
-                    onClick={() => unblockIp(r)}
-                    aria-label={`Unblock ${r.ip}`}
-                  >
-                    Unblock {r.ip}
-                  </button>
+                  {!isViewer && (
+                    <button
+                      type="button"
+                      className="btn ghost sm blk-unblock-btn"
+                      style={{ width: '100%', marginTop: 6 }}
+                      onClick={() => unblockIp(r)}
+                      aria-label={`Unblock ${r.ip}`}
+                    >
+                      Unblock {r.ip}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -529,21 +548,24 @@ export function BlockedIpsSection({ blockedState, compact = false, id = 'blocked
 
           {showHistory && (
             <div className="blk-history-list">
-              {visibleHistory.map((h) => (
-                <div key={h.id} className="blk-history-row">
-                  <span className="mono blk-history-ip">{h.ip}</span>
-                  <span className="blk-history-badge mono">{h.status}</span>
-                  <span className="blk-history-meta">
-                    blocked by {h.blocked_by || '—'}
-                    {h.resolved_by ? ` · ${h.status} by ${h.resolved_by}` : ''}
-                    {h.resolved_at ? (
-                      <span className="mono" title={formatAbsoluteTime(h.resolved_at)}>
-                        {' '}({formatTimestamp(h.resolved_at)})
-                      </span>
-                    ) : ''}
-                  </span>
-                </div>
-              ))}
+              {visibleHistory.map((h) => {
+                const tp = formatTimeParts(h.resolved_at || h.blocked_at);
+                return (
+                  <div key={h.id} className="blk-history-row">
+                    <span className="mono blk-history-ip">{h.ip}</span>
+                    <span className="blk-history-badge mono">{h.status}</span>
+                    <span className="blk-history-meta">
+                      blocked by {h.blocked_by || '—'}
+                      {h.resolved_by ? ` · ${h.status} by ${h.resolved_by}` : ''}
+                      {(h.resolved_at || h.blocked_at) ? (
+                        <span className="mono" title={formatAbsoluteTime(h.resolved_at || h.blocked_at)}>
+                          {' '}· {tp.date}{tp.age ? ` (${tp.age})` : ''}
+                        </span>
+                      ) : ''}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

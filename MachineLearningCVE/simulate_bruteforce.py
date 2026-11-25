@@ -18,7 +18,7 @@ import time
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 # Set this to the Windows laptop's LAN IP (the machine running live_feature_extractor.py)
-target_ip   = "192.168.0.100"  # ← Windows laptop IP
+target_ip   = "10.239.10.207"  # ← Pi (now the sensor)
 target_port = 9999              # Any port works. Use 9999 (dummy_server) for CONNECTED,
                                 # or any closed port for RST+ACK (both are detected).
 num_attempts   = 30             # 30 >> threshold of 8 → alert will fire

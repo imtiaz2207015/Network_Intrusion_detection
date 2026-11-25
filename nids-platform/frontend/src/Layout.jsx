@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { ThemeToggle } from './ui';
-import { useCriticalNotifier } from './notify';
+import { useCriticalNotifier, AlertToastStack } from './notify';
 import { severity, parseAlertTimeMs, usePolling } from './utils';
 import { isCurrentlyBlocked } from './BlockedIps';
 import SensorBadge from './SensorBadge';
@@ -12,16 +12,34 @@ const Icon = ({ d }) => (
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 );
 
-const links = [
-  { to: '/', label: 'Dashboard', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },
-  { to: '/alerts', label: 'Alerts', icon: 'M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0' },
-  { to: '/blocked', label: 'Blocked IPs', icon: 'M12 2L4 5.5v6c0 5.3 3.4 9.9 8 11.5 4.6-1.6 8-6.2 8-11.5v-6L12 2z' },
-  { to: '/analytics', label: 'Analytics', icon: 'M4 20V10M10 20V4M16 20v-8M22 20H2' },
-  { to: '/models', label: 'Model Performance', icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zM12 6a6 6 0 100 12 6 6 0 000-12zM12 10a2 2 0 100 4 2 2 0 000-4z' },
-  { to: '/assistant', label: 'AI Assistant', icon: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z' },
-  { to: '/settings', label: 'Settings', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
-  { to: '/help', label: 'Help', icon: 'M12 22a10 10 0 100-20 10 10 0 000 20zM9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01' },
+const navGroups = [
+  {
+    label: 'Monitor',
+    items: [
+      { to: '/', label: 'Dashboard', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },
+      { to: '/alerts', label: 'Alerts', icon: 'M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0' },
+      { to: '/blocked', label: 'Blocked IPs', icon: 'M12 2L4 5.5v6c0 5.3 3.4 9.9 8 11.5 4.6-1.6 8-6.2 8-11.5v-6L12 2z' },
+    ],
+  },
+  {
+    label: 'Analysis',
+    items: [
+      { to: '/analytics', label: 'Analytics', icon: 'M4 20V10M10 20V4M16 20v-8M22 20H2' },
+      { to: '/models', label: 'Model Performance', icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zM12 6a6 6 0 100 12 6 6 0 000-12zM12 10a2 2 0 100 4 2 2 0 000-4z' },
+      { to: '/assistant', label: 'AI Assistant', icon: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z' },
+      { to: '/chat', label: 'AI Chat', icon: 'M12 2L4 5.5v6c0 5.3 3.4 9.9 8 11.5 4.6-1.6 8-6.2 8-11.5v-6L12 2zM9.5 11.5h5M12 9v5' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { to: '/settings', label: 'Settings', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
+      { to: '/help', label: 'Help', icon: 'M12 22a10 10 0 100-20 10 10 0 000 20zM9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01' },
+    ],
+  },
 ];
+
+const links = navGroups.flatMap((g) => g.items);
 
 function updateFaviconBadge(count) {
   try {
@@ -32,16 +50,16 @@ function updateFaviconBadge(count) {
     if (!ctx) return;
 
     // Background shield circle
-    ctx.fillStyle = '#0e1311';
+    ctx.fillStyle = '#0e1114';
     ctx.beginPath();
     ctx.arc(32, 32, 28, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = count > 0 ? '#ff4d4f' : '#22c55e';
+    ctx.strokeStyle = count > 0 ? '#f87171' : '#2dd4bf';
     ctx.stroke();
 
-    // Inner radar / shield mark
-    ctx.strokeStyle = '#a3ff12';
+    // Inner shield check mark
+    ctx.strokeStyle = '#2dd4bf';
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(22, 33);
@@ -51,7 +69,7 @@ function updateFaviconBadge(count) {
 
     if (count > 0) {
       const text = count > 99 ? '99+' : String(count);
-      ctx.fillStyle = '#ff4d4f';
+      ctx.fillStyle = '#dc2626';
       ctx.beginPath();
       ctx.arc(48, 16, 15, 0, Math.PI * 2);
       ctx.fill();
@@ -76,7 +94,12 @@ function updateFaviconBadge(count) {
 }
 
 export default function Layout() {
-  const { data: pollData } = useCriticalNotifier();
+  const {
+    data: pollData,
+    toasts,
+    dismissToast,
+    setToastHovered,
+  } = useCriticalNotifier();
   const { data: blockedPoll } = usePolling('/blocked-ips', 5000);
   const activeBlockCount = useMemo(() => {
     const list = blockedPoll?.blocked;
@@ -265,21 +288,33 @@ export default function Layout() {
       {open && <div className="overlay" onClick={close} />}
       <aside className={'sidebar' + (open ? ' open' : '')} aria-label="Main navigation">
         <div className="sidebar-head">
-          <div className="brand">Sentinel<em>IQ</em></div>
+          <div className="brand brand-wrap">
+            <span className="brand-mark" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L4 5.5v6c0 5.3 3.4 9.9 8 11.5 4.6-1.6 8-6.2 8-11.5v-6L12 2z" />
+              </svg>
+            </span>
+            <span>Sentinel<em>IQ</em></span>
+          </div>
           <button className="sidebar-close-btn" onClick={close} aria-label="Close navigation drawer">✕</button>
         </div>
-        {links.map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.to === '/'} onClick={close}
-            className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
-            <Icon d={l.icon} />
-            <span>{l.label}</span>
-            {l.to === '/alerts' && unseenCount > 0 && (
-              <span className="nav-unseen-pill mono">{unseenCount}</span>
-            )}
-            {l.to === '/blocked' && activeBlockCount > 0 && (
-              <span className="nav-unseen-pill mono">{activeBlockCount}</span>
-            )}
-          </NavLink>
+        {navGroups.map((grp) => (
+          <div key={grp.label} className="nav-group">
+            <div className="nav-group-label">{grp.label}</div>
+            {grp.items.map((l) => (
+              <NavLink key={l.to} to={l.to} end={l.to === '/'} onClick={close}
+                className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+                <Icon d={l.icon} />
+                <span>{l.label}</span>
+                {l.to === '/alerts' && unseenCount > 0 && (
+                  <span className="nav-unseen-pill mono">{unseenCount}</span>
+                )}
+                {l.to === '/blocked' && activeBlockCount > 0 && (
+                  <span className="nav-unseen-pill mono">{activeBlockCount}</span>
+                )}
+              </NavLink>
+            ))}
+          </div>
         ))}
         <div className="drawer-sensor-status">
           <SensorBadge showFull />
@@ -292,6 +327,19 @@ export default function Layout() {
             </b>
             <span className="side-role-pill mono">{user.role}</span>
           </div>
+          <button
+            type="button"
+            className="side-logout-icon"
+            onClick={handleLogout}
+            aria-label="Log out"
+            title="Log out"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
         </div>
         <button type="button" className="btn ghost drawer-logout-btn" onClick={handleLogout}>
           Log out
@@ -310,7 +358,6 @@ export default function Layout() {
           </nav>
           <SensorBadge />
           <ThemeToggle />
-          <button className="btn topbar-logout" onClick={handleLogout}>Log out</button>
         </header>
 
         {underAttack && (
@@ -340,6 +387,12 @@ export default function Layout() {
         <main className="content">
           <Outlet />
         </main>
+
+        <AlertToastStack
+          toasts={toasts}
+          onDismiss={dismissToast}
+          onHoverChange={setToastHovered}
+        />
       </div>
     </div>
   );

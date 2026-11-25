@@ -8,9 +8,8 @@ export default function NotFound() {
     <div className="au">
       <div className="au-box" style={{ textAlign: 'center' }}>
         <div className="mono" style={{
-          fontSize: 84, fontWeight: 800, lineHeight: 1, marginBottom: 8,
-          background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
-          WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+          fontSize: 72, fontWeight: 800, lineHeight: 1, marginBottom: 10,
+          color: 'var(--accent)',
         }}>404</div>
         <h2>Page not found</h2>
         <p className="au-sub">The page you're looking for doesn't exist or was moved.</p>

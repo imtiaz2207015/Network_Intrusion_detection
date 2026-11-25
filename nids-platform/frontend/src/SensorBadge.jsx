@@ -4,7 +4,7 @@ import { humanAge } from './format';
 export default function SensorBadge({ showFull = false }) {
   const { data } = usePolling('/sensor', 5000);
   const online = !!(data && data.online);
-  const color = online ? 'var(--ok)' : 'var(--danger)';
+  const color = online ? 'var(--accent)' : 'var(--text-2)';
   const ageText = data && data.seen ? humanAge(data.age) : '';
 
   const label = !data

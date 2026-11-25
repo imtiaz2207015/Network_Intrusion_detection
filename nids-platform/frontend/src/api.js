@@ -11,6 +11,8 @@ async function request(base, path, { method = 'GET', body, token } = {}) {
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`);
     err.status = res.status;
+    if (data.verify) err.verify = data.verify;
+    if (data.email) err.email = data.email;
     throw err;
   }
   return data;
@@ -18,6 +20,7 @@ async function request(base, path, { method = 'GET', body, token } = {}) {
 
 export const api = (path, opts) => request('/api/auth', path, opts);
 export const alertsApi = (path, opts) => request('/api/alerts', path, opts);
+export const sensorsApi = (path, opts) => request('/api/sensors', path, opts);
 
 export async function downloadReport(token, hours = 24) {
   const res = await fetch(`/api/analytics/report.pdf?hours=${hours}`, {

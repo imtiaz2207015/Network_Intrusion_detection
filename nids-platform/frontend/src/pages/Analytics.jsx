@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { severity, sevColor } from '../utils';
 import { useAuth } from '../AuthContext';
 import { analyticsApi, downloadReport } from '../api';
-import { CountUp, Skeleton, ErrorBox, Empty } from '../ui';
+import { CountUp, Skeleton, ErrorBox, Empty, SeverityBadge } from '../ui';
 
 const RANGES = [
   [1, 'Last hour'],
@@ -83,7 +83,7 @@ function BarList({ rows, color = 'var(--accent)', prefix = '' }) {
   const max = Math.max(1, ...rows.map(([, n]) => n));
   const sum = rows.reduce((s, [, n]) => s + n, 0) || 1;
   if (!rows.length) {
-    return <Empty icon="📊" title="No data in this window" note="Select a wider time range above." />;
+    return <Empty title="No data in this window" note="Select a wider time range above." />;
   }
   return (
     <div className="an-barlist">
@@ -156,7 +156,12 @@ export default function Analytics() {
           ))}
         </div>
         <button className="btn sm" onClick={onDownload} disabled={busy}>
-          {busy ? 'Generating PDF...' : '⬇ Download PDF Report'}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>{busy ? 'Generating PDF...' : 'Download PDF Report'}</span>
         </button>
       </div>
       {dlError && <div style={{ color: 'var(--danger)', fontSize: 12, width: '100%' }}>{dlError}</div>}
@@ -207,7 +212,7 @@ export default function Analytics() {
         </div>
         <div className="card kpi-card">
           <div className="stat-label">Attack Signatures</div>
-          <div className="stat-value" style={{ color: 'var(--accent-2)' }}><CountUp value={types.length} /></div>
+          <div className="stat-value"><CountUp value={types.length} /></div>
           <div className="kpi-sub mono">Distinct classes triggered</div>
         </div>
         <div className="card kpi-card">
@@ -246,8 +251,8 @@ export default function Analytics() {
             >
               <defs>
                 <linearGradient id="ar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="var(--accent)" stopOpacity=".42" />
-                  <stop offset="1" stopColor="var(--accent-2)" stopOpacity="0" />
+                  <stop offset="0" stopColor="var(--accent)" stopOpacity=".32" />
+                  <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
                 </linearGradient>
               </defs>
               {[0.25, 0.5, 0.75].map((g) => (
@@ -257,7 +262,7 @@ export default function Analytics() {
                   x2={W - 12}
                   y1={H * g}
                   y2={H * g}
-                  stroke="var(--border)"
+                  stroke="var(--divider)"
                   strokeDasharray="4 4"
                   strokeWidth="1"
                 />
@@ -309,8 +314,7 @@ export default function Analytics() {
                   const pct = Math.round((d.n / Math.max(1, data.total)) * 100);
                   return (
                     <div key={d.label} className="an-sev-row">
-                      <span className="an-sev-dot" style={{ background: d.color }} />
-                      <span style={{ fontWeight: 600 }}>{d.label}</span>
+                      <SeverityBadge level={d.label} />
                       <span className="mono" style={{ marginLeft: 'auto' }}>{d.n.toLocaleString()}</span>
                       <span className="mono" style={{ color: 'var(--muted)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>
                         {pct}%
@@ -325,18 +329,18 @@ export default function Analytics() {
 
         <div className="card">
           <div className="stat-label" style={{ marginBottom: 14 }}>Attack signatures history · selected range</div>
-          <BarList rows={types} color="linear-gradient(90deg, var(--accent), var(--accent-2))" />
+          <BarList rows={types} color="var(--accent)" />
         </div>
       </div>
 
       <div className="grid an-two-col">
         <div className="card">
           <div className="stat-label" style={{ marginBottom: 14 }}>Top attacker IPs · selected range</div>
-          <BarList rows={data.sources} color="var(--danger)" />
+          <BarList rows={data.sources} color="var(--accent)" />
         </div>
         <div className="card">
           <div className="stat-label" style={{ marginBottom: 14 }}>Targeted ports · selected range</div>
-          <BarList rows={data.top_ports} color="var(--warn)" prefix="Port " />
+          <BarList rows={data.top_ports} color="var(--accent)" prefix="Port " />
         </div>
       </div>
     </div>

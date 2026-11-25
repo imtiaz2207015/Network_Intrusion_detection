@@ -174,3 +174,42 @@ def test_expired_reset_link_is_rejected(auth, auth_client, outbox):
     con.close()
     r = auth_client.post("/reset-password", json={"token": token_from(outbox), "password": "NewPassw0rd9"})
     assert r.status_code == 400
+
+
+def test_put_password_changes_password_and_rate_limits(auth, auth_client, monkeypatch):
+    monkeypatch.setattr(auth, "TEST_AUTO_VERIFY", True)
+    register(auth_client)
+    h = bearer(auth_client, "alice")
+
+    # Requires auth
+    assert auth_client.put("/password", json={"current_password": PW, "new_password": "NewPassword123"}).status_code == 401
+
+    # Missing current password -> 400
+    assert auth_client.put("/password", json={"current_password": "", "new_password": "NewPassword123"}, headers=h).status_code == 400
+
+    # Wrong current password -> 400 with clear message
+    bad_cur = auth_client.put("/password", json={"current_password": "WrongPassword1", "new_password": "NewPassword123"}, headers=h)
+    assert bad_cur.status_code == 400
+    assert "incorrect" in bad_cur.get_json()["error"].lower()
+
+    # Too short new password (< 8 chars) -> 400
+    short_pw = auth_client.put("/password", json={"current_password": PW, "new_password": "short7"}, headers=h)
+    assert short_pw.status_code == 400
+    assert "8" in short_pw.get_json()["error"]
+
+    # Same as current password -> 400
+    same_pw = auth_client.put("/password", json={"current_password": PW, "new_password": PW}, headers=h)
+    assert same_pw.status_code == 400
+
+    # Valid password change -> 200
+    ok_res = auth_client.put("/password", json={"current_password": PW, "new_password": "UpdatedPass99"}, headers=h)
+    assert ok_res.status_code == 200 and ok_res.get_json()["ok"] is True
+
+    # Old password no longer logs in; new password works
+    assert login(auth_client, "alice", PW).status_code == 401
+    assert login(auth_client, "alice", "UpdatedPass99").status_code == 200
+
+    # Per-user rate limit on /password
+    monkeypatch.setattr(auth, "PW_CHANGE_MAX_PER_HOUR", 3)
+    rl = auth_client.put("/password", json={"current_password": "UpdatedPass99", "new_password": "AnotherPassword1"}, headers=h)
+    assert rl.status_code == 429

@@ -1,12 +1,12 @@
 export const SENSOR_OFFLINE_GUIDE = {
   title: 'How to Turn On Your Network Sensor',
   subtitle:
-    'No technical setup needed—just follow these 3 simple steps to bring your protection online:',
+    'Your personal sensor key lives in Settings > My sensor. Follow these 3 simple steps to bring your protection online:',
   steps: [
     {
       num: 1,
-      title: 'Plug Into Power',
-      text: 'Connect your SentinelIQ Sensor Box (Raspberry Pi) to a power outlet and wait for the power light.',
+      title: 'Plug Into Power & Set Your Key',
+      text: 'Connect your SentinelIQ Sensor Box (Raspberry Pi) to a power outlet and configure your personal key from Settings > My sensor.',
     },
     {
       num: 2,
@@ -20,4 +20,3 @@ export const SENSOR_OFFLINE_GUIDE = {
     },
   ],
 };
-

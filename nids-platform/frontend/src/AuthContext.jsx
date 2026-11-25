@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, login, googleLogin, logout }}>
+    <AuthContext.Provider value={{ token, user, login, googleLogin, logout, saveSession: save }}>
       {children}
     </AuthContext.Provider>
   );

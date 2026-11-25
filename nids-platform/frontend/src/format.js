@@ -3,11 +3,62 @@ const MONTHS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
+const TIME_24H_KEY = 'sentineliq_time_24h';
+
+export function getTimeFormat24h() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(TIME_24H_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setTimeFormat24h(use24h) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(TIME_24H_KEY, use24h ? '1' : '0');
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('sentineliq:prefs-changed'));
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+function formatClock(h24, m, sec = null) {
+  const mm = String(m).padStart(2, '0');
+  const ss = sec === null ? '' : `:${String(sec).padStart(2, '0')}`;
+  if (getTimeFormat24h()) {
+    return `${String(h24).padStart(2, '0')}:${mm}${ss}`;
+  }
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  return `${String(h12).padStart(2, '0')}:${mm}${ss} ${ampm}`;
+}
+
 export function parseTimeMs(t) {
   if (!t) return NaN;
+  if (typeof t === 'number') return t < 1e12 ? t * 1000 : t;
   const raw = String(t).trim().replace(' ', 'T');
-  const ms = Date.parse(raw.endsWith('Z') ? raw : raw + 'Z');
-  return isNaN(ms) ? Date.parse(raw) : ms;
+  // Respect explicit timezone (Z or +/-HH:MM); otherwise treat sensor timestamps as local time
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const ms = Date.parse(raw);
+    return isNaN(ms) ? NaN : ms;
+  }
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    return new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      Number(m[6] || 0)
+    ).getTime();
+  }
+  const ms = Date.parse(raw);
+  return isNaN(ms) ? NaN : ms;
 }
 
 export function humanAge(seconds) {
@@ -44,12 +95,22 @@ export function formatAbsoluteTime(t) {
   const month = MONTHS[d.getMonth()];
   const day = d.getDate();
   const year = d.getFullYear();
-  const h24 = d.getHours();
-  const m = d.getMinutes();
-  const sec = d.getSeconds();
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  const ampm = h24 >= 12 ? 'PM' : 'AM';
-  return `${month} ${day}, ${year}, ${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')} ${ampm}`;
+  return `${month} ${day}, ${year}, ${formatClock(d.getHours(), d.getMinutes(), d.getSeconds())}`;
+}
+
+export function formatTimeParts(t) {
+  if (!t) return { date: '—', age: '' };
+  const d = new Date(String(t).trim().replace(' ', 'T'));
+  const ms = parseTimeMs(t);
+  if (isNaN(d) || isNaN(ms)) return { date: String(t), age: '' };
+  const month = MONTHS[d.getMonth()];
+  const day = d.getDate();
+  const clock = formatClock(d.getHours(), d.getMinutes());
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  return {
+    date: `${month} ${day}, ${clock}`,
+    age: shortAge(s),
+  };
 }
 
 export function formatTimestamp(t) {
@@ -58,12 +119,7 @@ export function formatTimestamp(t) {
   const ms = parseTimeMs(t);
   if (isNaN(d) || isNaN(ms)) return String(t);
 
-  const h24 = d.getHours();
-  const m = d.getMinutes();
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  const ampm = h24 >= 12 ? 'PM' : 'AM';
-  const clock = `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
-
+  const clock = formatClock(d.getHours(), d.getMinutes());
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   const age = shortAge(s);
 

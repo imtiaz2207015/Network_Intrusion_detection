@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { alertsApi } from '../api';
 import { useAuth } from '../AuthContext';
-import { severity as sevOf } from '../utils';
-import { formatTimestamp, formatAbsoluteTime } from '../format';
-import { Skeleton, Empty } from '../ui';
+import { severity as sevOf, plainName } from '../utils';
+import { formatTimeParts, formatAbsoluteTime } from '../format';
+import { Skeleton, Empty, SeverityBadge } from '../ui';
 import '../assistant.css';
 
 function splitVerdict(text = '') {
@@ -64,6 +65,9 @@ function Chevron() {
 
 export default function Assistant() {
   const { token, user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const targetAlertParam = searchParams.get('alert');
+  const handledAlertRef = useRef(null);
   const [alerts, setAlerts] = useState([]);
   const [sel, setSel] = useState(null);
   const [res, setRes] = useState(null);
@@ -77,7 +81,7 @@ export default function Assistant() {
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 480px)').matches
   );
   const reqId = useRef(0);
-  const canRefresh = user?.role === 'admin' || user?.role === 'analyst';
+  const canRefresh = !!user;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -96,6 +100,23 @@ export default function Assistant() {
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [token]);
+
+  useEffect(() => {
+    if (!targetAlertParam || !/^\d+$/.test(targetAlertParam.trim()) || loading) return;
+    const aid = Number(targetAlertParam.trim());
+    if (handledAlertRef.current === aid) return;
+    handledAlertRef.current = aid;
+    const found = alerts.find((a) => Number(a.id) === aid);
+    if (found) {
+      open(found);
+      return;
+    }
+    alertsApi(`/${aid}`, { token })
+      .then((a) => {
+        if (a && a.id) open(a);
+      })
+      .catch(() => {});
+  }, [targetAlertParam, alerts, loading, token]);
 
   const filteredAlerts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -169,15 +190,30 @@ export default function Assistant() {
         <button className="as-x" onClick={close} aria-label="Close">✕</button>
 
         <div className="as-top">
-          <span className={'as-badge as-' + sev.toLowerCase()}>{sev}</span>
-          <h2>{sel.type}</h2>
+          <SeverityBadge level={sev} />
+          <div>
+            <h2>{plainName(sel.type, sel)}</h2>
+            {plainName(sel.type, sel).toLowerCase() !== String(sel.type || '').toLowerCase() && (
+              <span className="alert-tech-sub">{sel.type}</span>
+            )}
+          </div>
           <span className="mono as-alert-id">Alert #{sel.id}</span>
         </div>
 
         <div className="as-ipbox">
           <div><small>Source (attacker)</small><b>{sel.src || '—'}</b></div>
           <div><small>Target</small><b>{sel.dst || '-'}{portOf(sel)}</b></div>
-          <div><small>Time</small><b className="mono" title={formatAbsoluteTime(sel.time)}>{formatTimestamp(sel.time)}</b></div>
+          <div>
+            <small>Time</small>
+            {(() => {
+              const tp = formatTimeParts(sel.time);
+              return (
+                <b className="mono" title={formatAbsoluteTime(sel.time)}>
+                  {tp.date}{tp.age ? ` (${tp.age})` : ''}
+                </b>
+              );
+            })()}
+          </div>
         </div>
         {sel.detail && <p className="as-detail mono">{sel.detail}</p>}
 
@@ -193,7 +229,7 @@ export default function Assistant() {
           <div className="as-res">
             <div className="as-res-meta">
               <span className={'as-from mono' + (res.source === 'claude' ? ' claude' : '')}>
-                {res.source === 'claude' ? '✦ Explained by Claude AI' : '⚡ Built-in Security Playbook'}
+                {res.source === 'claude' ? 'Explained by Claude AI' : 'Built-in Security Playbook'}
                 {res.cached ? ' · saved' : ''}
               </span>
               {res.note && <span className="as-note-inline">{res.note}</span>}
@@ -237,39 +273,49 @@ export default function Assistant() {
 
   return (
     <div className="as">
-      <div className="card as-banner">
-        <div className="as-banner-left">
-          <div className="as-banner-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l1.9 5.8a2 2 0 001.3 1.3L21 12l-5.8 1.9a2 2 0 00-1.3 1.3L12 21l-1.9-5.8a2 2 0 00-1.3-1.3L3 12l5.8-1.9a2 2 0 001.3-1.3L12 3z" />
-            </svg>
-          </div>
-          <div>
-            <h2>AI Incident Assistant</h2>
-            <p className="band-sub">
-              Click <b>Explain</b> on any detection below to generate a plain-English root cause summary, severity verdict, and defensive checklist.
-            </p>
-          </div>
+      <div className="as-header">
+        <div>
+          <h2>AI Incident Assistant</h2>
+          <p className="band-sub">
+            Select any alert below for a plain-English explanation and step-by-step fix.
+          </p>
         </div>
-        <div className="as-banner-right mono">
-          <span>{filteredAlerts.length} alerts</span>
+        <div className="as-header-meta mono">
+          <span>{filteredAlerts.length} {filteredAlerts.length === 1 ? 'alert' : 'alerts'}</span>
           <span>{groups.length} {groups.length === 1 ? 'day' : 'days'}</span>
         </div>
       </div>
 
       {/* Quick Filter Bar */}
       {!loading && alerts.length > 0 && (
-        <div className="as-toolbar">
-          <input
-            className="input as-search"
-            placeholder={
-              isMobile480
-                ? 'Search IP, port, attack'
-                : 'Filter by source IP, target IP, port, or attack type...'
-            }
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div className="card as-toolbar">
+          <div className="as-search-wrap">
+            <svg
+              className="as-search-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              className="input as-search"
+              placeholder={
+                isMobile480
+                  ? 'Search IP, port, attack'
+                  : 'Search by IP, port, or threat name...'
+              }
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
           <div className="as-sev-pills" role="group" aria-label="Filter by severity">
             {['', 'Critical', 'High', 'Medium'].map((sv) => (
               <button
@@ -287,14 +333,13 @@ export default function Assistant() {
 
       {loading && (
         <div className="as-feed" style={{ display: 'grid', gap: 12 }}>
-          {[0, 1, 2].map((i) => <Skeleton key={i} h={110} r={16} />)}
+          {[0, 1, 2].map((i) => <Skeleton key={i} h={110} r={8} />)}
         </div>
       )}
 
       {!loading && filteredAlerts.length === 0 && (
         <div className="card as-feed">
           <Empty
-            icon="🤖"
             title={alerts.length === 0 ? 'No alerts to explain yet' : 'No alerts match your filter'}
             note={
               alerts.length === 0
@@ -334,19 +379,32 @@ export default function Assistant() {
                 <div className="as-day-list">
                   {g.items.map((a) => {
                     const s = sevOf(a.type);
+                    const friendly = plainName(a.type, a);
+                    const showTech = friendly.toLowerCase() !== String(a.type || '').toLowerCase();
+                    const tp = formatTimeParts(a.time);
                     return (
                       <div key={a.id} className="as-row" onClick={() => open(a)}>
-                        <i className={'as-dot as-' + s.toLowerCase()} />
-                        <b className="as-r-type">{a.type}</b>
-                        <span className="as-r-ip">{a.src} → {a.dst || '-'}{portOf(a)}</span>
-                        <span className="as-r-time mono" title={formatAbsoluteTime(a.time)}>{formatTimestamp(a.time)}</span>
-                        <span className={'as-badge as-' + s.toLowerCase()}>{s}</span>
+                        <div className="as-r-sev">
+                          <SeverityBadge level={s} />
+                        </div>
+                        <div className="as-r-attack">
+                          <b className="alert-plain-title">{friendly}</b>
+                          {showTech && <span className="alert-tech-sub">{a.type}</span>}
+                        </div>
+                        <div className="as-r-ip mono">
+                          <span className="as-ip-src">{a.src || '—'}</span>
+                          <span className="as-ip-dst">→ {a.dst || '-'}{portOf(a)}</span>
+                        </div>
+                        <div className="as-r-time mono" title={formatAbsoluteTime(a.time)}>
+                          <span className="as-time-main">{tp.date}</span>
+                          {tp.age && <span className="as-time-age">{tp.age}</span>}
+                        </div>
                         <button
                           type="button"
                           className="as-btn sm as-explain-btn"
                           onClick={(e) => { e.stopPropagation(); open(a); }}
                         >
-                          ✦ Explain
+                          Explain
                         </button>
                       </div>
                     );

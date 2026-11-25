@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 
@@ -51,6 +53,8 @@ def test_severity_and_top_sources(analytics_client, make_token, insert_alert):
 
 
 def test_report_pdf(analytics_client, make_token, insert_alert):
+    if getattr(sys.modules.get("reportlab"), "__file__", None) is None:
+        pytest.skip("reportlab is not installed in the test venv")
     h = hdr(make_token)
     empty = analytics_client.get("/report.pdf?hours=24", headers=h)
     assert empty.status_code == 200 and empty.data.startswith(b"%PDF")

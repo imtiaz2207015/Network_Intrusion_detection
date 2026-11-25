@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
+import { sanitizeNextPath } from './utils';
 import Layout from './Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -11,6 +12,7 @@ import BlockedIps from './pages/BlockedIps';
 import Analytics from './pages/Analytics';
 import ModelPerformance from './pages/ModelPerformance';
 import Assistant from './pages/Assistant';
+import SecurityChat from './pages/SecurityChat';
 import Placeholder from './pages/Placeholder';
 import Landing from './pages/Landing';
 import Settings from './pages/Settings';
@@ -19,9 +21,16 @@ import NotFound from './pages/NotFound';
 
 function Protected({ children }) {
   const { token } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   if (token) return children;
-  return <Navigate to={pathname === '/' ? '/home' : '/login'} replace />;
+  if (pathname === '/' && !search && !hash) {
+    return <Navigate to="/home" replace />;
+  }
+  const intended = sanitizeNextPath(`${pathname}${search || ''}${hash || ''}`);
+  try {
+    sessionStorage.setItem('nids_next_path', intended);
+  } catch { /* ignore */ }
+  return <Navigate to={`/login?next=${encodeURIComponent(intended)}`} replace />;
 }
 
 export default function App() {
@@ -41,6 +50,7 @@ export default function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/models" element={<ModelPerformance />} />
             <Route path="/assistant" element={<Assistant />} />
+            <Route path="/chat" element={<SecurityChat />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/help" element={<Help />} />
             <Route path="/admin" element={<Placeholder title="Admin" note="User and role management arrive in Phase 7." />} />

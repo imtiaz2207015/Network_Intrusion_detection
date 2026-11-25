@@ -1,4 +1,4 @@
-/* ===== SentinelIQ Split-Card Auth (Lime / Emerald Theme) ===== */
+/* ===== SentinelIQ Split-Card Auth (Flat Token Theme) ===== */
 .sp, .au {
   min-height: 100vh;
   min-height: 100dvh;
@@ -9,13 +9,7 @@
   padding: 28px;
   color: var(--text);
   font-family: var(--font-sans);
-  background:
-    radial-gradient(700px 420px at 14% 10%, var(--accent-soft), transparent 62%),
-    radial-gradient(700px 450px at 88% 92%, var(--ok-soft), transparent 62%),
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px),
-    var(--bg);
-  background-size: auto, auto, 44px 44px, 44px 44px, auto;
+  background: var(--page);
 }
 
 .au {
@@ -23,14 +17,14 @@
 }
 
 .au-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 24px;
+  background: var(--card);
+  border: none;
+  border-radius: var(--radius);
   padding: 36px 32px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--card-shadow);
 }
 
-/* ---------- Left Half (Radar + Headline + Live Ticker) ---------- */
+/* ---------- Left Half (Visual + Headline) ---------- */
 .sp-left {
   position: relative;
   overflow: hidden;
@@ -39,26 +33,14 @@
   justify-content: space-between;
   gap: 20px;
   padding: 34px 38px 30px;
-  border-radius: 28px 0 0 28px;
-  border: 1px solid var(--border);
-  border-right: none;
-  box-shadow: var(--shadow-lg);
-  background:
-    radial-gradient(480px 320px at 20% 15%, var(--accent-soft), transparent 62%),
-    radial-gradient(440px 360px at 85% 90%, var(--ok-soft), transparent 62%),
-    linear-gradient(160deg, var(--surface), var(--bg) 65%, var(--surface-2));
+  border-radius: var(--radius) 0 0 var(--radius);
+  border: none;
+  border-right: 1px solid var(--divider);
+  box-shadow: var(--card-shadow);
+  background: var(--sidebar);
 }
 .sp-left::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 38px 38px;
-  -webkit-mask-image: radial-gradient(circle at 50% 42%, #000 20%, transparent 75%);
-  mask-image: radial-gradient(circle at 50% 42%, #000 20%, transparent 75%);
-  pointer-events: none;
+  display: none;
 }
 .sp-left > * { position: relative; z-index: 1; }
 
@@ -76,7 +58,7 @@
 .sp-logo em, .sp-mlogo em {
   font-style: normal;
   color: var(--accent);
-  text-shadow: 0 0 18px var(--accent-glow);
+  text-shadow: none;
 }
 .sp-logo-badge {
   width: 32px;
@@ -87,13 +69,13 @@
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   color: var(--accent);
-  box-shadow: 0 0 14px var(--accent-glow);
+  box-shadow: none;
 }
 .sp-mlogo { display: none; margin-bottom: 20px; }
 
 .sp-mid { text-align: center; margin: 4px 0; }
 
-/* Animated Lime/Emerald Radar */
+/* Network Monitor Visual */
 .radar {
   position: relative;
   width: 196px;
@@ -106,7 +88,7 @@
     linear-gradient(var(--accent-border), var(--accent-border)) center / 100% 1px no-repeat,
     repeating-radial-gradient(circle, transparent 0 30px, var(--accent-soft) 31px 32px),
     radial-gradient(circle, var(--accent-soft), transparent 70%);
-  box-shadow: 0 0 54px var(--accent-glow), inset 0 0 36px var(--accent-soft);
+  box-shadow: none;
 }
 .radar::before {
   content: '';
@@ -133,7 +115,7 @@
   margin: -5px 0 0 -5px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 12px var(--accent);
+  box-shadow: none;
   z-index: 2;
 }
 .blip {
@@ -142,15 +124,15 @@
   height: 9px;
   border-radius: 50%;
   background: var(--danger);
-  box-shadow: 0 0 14px 3px var(--danger-border);
+  box-shadow: none;
   opacity: 0;
   animation: blip 3.6s ease-in-out infinite;
   z-index: 2;
 }
 .b1 { top: 24%; left: 65%; animation-delay: 0.35s; }
-.b2 { top: 63%; left: 23%; animation-delay: 1.45s; background: var(--warn); box-shadow: 0 0 14px 3px var(--warn-border); }
+.b2 { top: 63%; left: 23%; animation-delay: 1.45s; background: var(--warn); box-shadow: none; }
 .b3 { top: 71%; left: 67%; animation-delay: 2.2s; }
-.b4 { top: 30%; left: 29%; animation-delay: 2.95s; background: var(--accent); box-shadow: 0 0 14px 3px var(--accent-border); }
+.b4 { top: 30%; left: 29%; animation-delay: 2.95s; background: var(--accent); box-shadow: none; }
 
 @keyframes sweep { to { transform: rotate(360deg); } }
 @keyframes blip {
@@ -170,10 +152,7 @@
 }
 .sp-h1 em {
   font-style: normal;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
 }
 .sp-p {
   max-width: 410px;
@@ -231,10 +210,10 @@
   align-items: center;
   justify-content: center;
   padding: 54px 40px 44px;
-  border-radius: 0 28px 28px 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--card);
+  border: none;
+  box-shadow: var(--card-shadow);
 }
 .sp-top-actions {
   position: absolute;
@@ -333,14 +312,14 @@
   font-weight: 700;
   color: var(--btn-text);
   cursor: pointer;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 8px 26px var(--accent-glow);
+  background: var(--accent);
+  box-shadow: none;
   transition: transform 0.15s, box-shadow 0.2s, filter 0.2s;
 }
 .au-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   filter: brightness(1.05);
-  box-shadow: 0 12px 32px var(--accent-glow);
+  box-shadow: none;
 }
 .au-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
@@ -373,6 +352,47 @@
 .au-meter { display: flex; gap: 6px; margin: 0 0 6px; }
 .au-meter i { flex: 1; height: 4px; border-radius: 4px; background: var(--border); transition: background 0.25s; }
 .au-hint { margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+
+/* 6-Digit Email Verification OTP Grid */
+.au-otp-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.au-otp-box {
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+  min-height: 48px;
+  text-align: center;
+  font-size: 20px !important;
+  font-weight: 700;
+  color: var(--accent);
+}
+.au-otp-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.au-resend-btn {
+  width: 100%;
+  min-height: 44px;
+}
+.au-link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 6px 10px;
+}
+.au-link-btn:hover {
+  text-decoration: underline;
+}
 
 /* ---------- Mobile: Compact Radar + Form ---------- */
 @media (max-width: 900px) {
@@ -438,5 +458,12 @@
     min-height: 44px;
     display: inline-flex;
     align-items: center;
+  }
+  .au-otp-grid {
+    gap: 6px;
+  }
+  .au-otp-box {
+    min-height: 46px;
+    font-size: 18px !important;
   }
 }

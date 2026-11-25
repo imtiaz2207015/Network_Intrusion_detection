@@ -5,6 +5,35 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <script>
+      (function () {
+        var pref = 'system';
+        try {
+          var saved = localStorage.getItem('nids-theme');
+          if (saved === 'dark' || saved === 'light' || saved === 'system') {
+            pref = saved;
+          } else {
+            var legacy = localStorage.getItem('theme');
+            if (legacy === 'dark' || legacy === 'light') {
+              pref = legacy;
+              localStorage.setItem('nids-theme', pref);
+            }
+          }
+        } catch (e) {}
+        var resolved = pref;
+        if (pref === 'system') {
+          try {
+            resolved =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          } catch (e) {
+            resolved = 'dark';
+          }
+        }
+        document.documentElement.setAttribute('data-theme', resolved);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { alertsApi } from './api';
+import { parseTimeMs } from './format';
 
 export function severity(type) {
   const t = (type || '').toLowerCase();
@@ -14,8 +15,67 @@ export const sevColor = {
   Critical: 'var(--danger)',
   High: 'var(--high)',
   Medium: 'var(--warn)',
-  Low: 'var(--muted)',
+  Low: 'var(--low)',
 };
+
+export function plainName(type, alertOrSignature = null) {
+  const sig =
+    typeof alertOrSignature === 'string'
+      ? alertOrSignature.trim()
+      : alertOrSignature && alertOrSignature.signature
+        ? String(alertOrSignature.signature).trim()
+        : '';
+
+  if (sig) {
+    const sUp = sig.toUpperCase();
+    if (sUp.includes('SCAN') && (sUp.includes('3306') || sUp.includes('MYSQL'))) {
+      return 'Someone scanned your database (MySQL, port 3306)';
+    }
+    if (sUp.includes('SCAN') && sUp.includes('SSH')) {
+      return 'Someone scanned your SSH login service';
+    }
+    if (sUp.includes('SCAN') && (sUp.includes('NMAP') || sUp.includes('OS DETECTION'))) {
+      return 'Someone scanned your network to identify devices';
+    }
+    if (sUp.includes('SCAN')) {
+      return 'Someone scanned your network';
+    }
+    if (alertOrSignature && String(alertOrSignature.source || '').toLowerCase() === 'suricata') {
+      return sig;
+    }
+  }
+
+  const raw = String(type || '').trim();
+  const key = raw.toLowerCase();
+  if (!raw) return 'Unusual network activity';
+  if (key.startsWith('et ') || key.startsWith('suricata ') || key.startsWith('gpl ')) {
+    const rUp = raw.toUpperCase();
+    if (rUp.includes('SCAN') && (rUp.includes('3306') || rUp.includes('MYSQL'))) {
+      return 'Someone scanned your database (MySQL, port 3306)';
+    }
+    if (rUp.includes('SCAN')) return 'Someone scanned your network';
+    return raw;
+  }
+  if (key === 'portscan' || key.includes('port scan') || key.includes('portscan')) {
+    return 'Someone scanned your network';
+  }
+  if (key === 'bruteforce' || key.includes('brute')) {
+    return 'Repeated login or connection attempts';
+  }
+  if (key.includes('dos') || key.includes('syn flood') || key.includes('synflood')) {
+    return 'Flood of connection requests';
+  }
+  if (key.includes('udp')) {
+    return 'Flood of data packets (UDP)';
+  }
+  if (key.includes('icmp')) {
+    return 'Flood of ping requests';
+  }
+  if (key.includes('ml-detected') || key === 'ml' || key.includes('ml detected')) {
+    return 'Unusual traffic detected';
+  }
+  return raw;
+}
 
 export const SEV_RANK = {
   Critical: 4,
@@ -25,19 +85,74 @@ export const SEV_RANK = {
 };
 
 export function parseAlertTimeMs(t) {
-  if (!t) return NaN;
-  const s = String(t).trim().replace(' ', 'T');
-  const ms = Date.parse(s.endsWith('Z') ? s : s + 'Z');
-  return isNaN(ms) ? Date.parse(s) : ms;
+  return parseTimeMs(t);
 }
 
-export function usePolling(path, ms = 5000) {
+const POLL_PREF_KEY = 'sentineliq_poll_ms';
+const SOUND_PREF_KEY = 'sentineliq_alert_sound';
+
+export function getPollIntervalMs() {
+  try {
+    if (typeof localStorage === 'undefined') return 5000;
+    const raw = localStorage.getItem(POLL_PREF_KEY);
+    if (raw === null) return 5000;
+    const n = Number(raw);
+    return [0, 5000, 15000, 30000].includes(n) ? n : 5000;
+  } catch {
+    return 5000;
+  }
+}
+
+export function setPollIntervalMs(ms) {
+  const safe = [0, 5000, 15000, 30000].includes(Number(ms)) ? Number(ms) : 5000;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(POLL_PREF_KEY, String(safe));
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('sentineliq:prefs-changed'));
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  return safe;
+}
+
+export function getAlertSoundEnabled() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(SOUND_PREF_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setAlertSoundEnabled(enabled) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SOUND_PREF_KEY, enabled ? '1' : '0');
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  return !!enabled;
+}
+
+export function usePolling(path, ms = null) {
   const { token, logout } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
+  const [prefMs, setPrefMs] = useState(getPollIntervalMs);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
+
+  useEffect(() => {
+    const onPref = () => setPrefMs(getPollIntervalMs());
+    window.addEventListener('sentineliq:prefs-changed', onPref);
+    return () => window.removeEventListener('sentineliq:prefs-changed', onPref);
+  }, []);
+
+  const effectiveMs = ms !== null ? ms : prefMs;
 
   useEffect(() => {
     let alive = true;
@@ -52,17 +167,17 @@ export function usePolling(path, ms = 5000) {
       }
     }
     load();
-    const id = setInterval(load, ms);
+    const id = effectiveMs > 0 ? setInterval(load, effectiveMs) : null;
     const onVis = () => {
       if (!document.hidden) load();
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
       alive = false;
-      clearInterval(id);
+      if (id) clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [path, token, ms, tick]);
+  }, [path, token, effectiveMs, tick]);
 
   return { data, error, reload };
 }
@@ -119,4 +234,86 @@ export function getAdvice(type) {
     risk: 'Unknown, so investigate.',
     actions: ['Check the source IP and destination.', 'Block the source if it is unexpected.'],
   };
+}
+
+export function suggestedSteps(type) {
+  const key = String(type || '').toLowerCase();
+  if (key.includes('portscan') || key.includes('port scan') || key.includes('scan')) {
+    return [
+      'Block or rate-limit the scanning IP if you do not recognize it.',
+      'Close unused ports and services on the target device.',
+      'Watch this source IP for follow-up login or exploit attempts.',
+    ];
+  }
+  if (key.includes('brute')) {
+    return [
+      'Block the source IP immediately to stop password guessing.',
+      'Check that strong passwords, SSH keys, or MFA are enabled on the target.',
+      'Review recent login logs for any successful sign-ins from this IP.',
+    ];
+  }
+  if (key.includes('dos') || key.includes('syn')) {
+    return [
+      'Block the offending source IP to protect service availability.',
+      'Enable SYN cookies or connection rate-limiting on the target host.',
+      'Verify whether the target service is still responding normally.',
+    ];
+  }
+  if (key.includes('udp')) {
+    return [
+      'Confirm this is not expected streaming, gaming, or VoIP traffic.',
+      'Block or rate-limit UDP packets from the source IP if unexpected.',
+      'Close unused UDP ports on the target device.',
+    ];
+  }
+  if (key.includes('icmp')) {
+    return [
+      'Rate-limit or block inbound ping (ICMP) from untrusted hosts.',
+      'Block the source IP if the flood is slowing down your network.',
+    ];
+  }
+  if (key.includes('ml')) {
+    return [
+      'Check whether you recognize the source device and destination port.',
+      'Use Explain with AI for a deeper breakdown of the traffic pattern.',
+      'Block the source IP if the activity repeats and looks unexpected.',
+    ];
+  }
+  return [
+    'Verify whether the source IP belongs to a trusted device on your network.',
+    'Block the source IP if the connection was unexpected.',
+    'Mark the alert as investigated once reviewed.',
+  ];
+}
+
+export function sanitizeNextPath(raw) {
+  if (!raw || typeof raw !== 'string') return '/';
+  const s = raw.trim();
+  if (!s.startsWith('/') || s.startsWith('//') || s.startsWith('/\\') || s.includes('://')) {
+    return '/';
+  }
+  if (
+    s.startsWith('/login') ||
+    s.startsWith('/register') ||
+    s.startsWith('/forgot-password') ||
+    s.startsWith('/reset-password') ||
+    s.startsWith('/home')
+  ) {
+    return '/';
+  }
+  return s;
+}
+
+export function consumeNextPath(search = '') {
+  let qNext = '';
+  try {
+    const params = new URLSearchParams(search);
+    qNext = params.get('next') || '';
+  } catch { /* ignore */ }
+  let saved = '';
+  try {
+    saved = sessionStorage.getItem('nids_next_path') || '';
+    sessionStorage.removeItem('nids_next_path');
+  } catch { /* ignore */ }
+  return sanitizeNextPath(qNext || saved || '/');
 }

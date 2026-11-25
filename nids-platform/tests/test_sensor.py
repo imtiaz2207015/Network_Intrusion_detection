@@ -62,7 +62,13 @@ class SyncThread:
 def find_sensor():
     if os.environ.get("SENSOR_FILE"):
         return pathlib.Path(os.environ["SENSOR_FILE"])
-    for folder in (ROOT, ROOT / "sensor", ROOT.parent, ROOT.parent / "sensor"):
+    for folder in (
+        ROOT,
+        ROOT / "sensor",
+        ROOT.parent,
+        ROOT.parent / "sensor",
+        ROOT.parent / "MachineLearningCVE",
+    ):
         f = folder / "live_feature_extractor.py"
         if f.exists():
             return f
@@ -279,6 +285,54 @@ def test_brute_force_packets(sensor, clock, alerts_log):
     assert alerts_log[0][3] == 22
 
 
+def test_syn_flood_on_port_80_only_triggers_dos(sensor, clock, alerts_log):
+    feed(sensor, tcp("6.6.6.6", "10.0.0.5", 80), 120)
+    assert types(alerts_log) == ["DoS/SYN Flood"]
+    assert alerts_log[0][1:4] == ("6.6.6.6", "10.0.0.5", "any")
+
+
+def test_brute_force_only_applies_to_login_service_ports(sensor, clock, alerts_log):
+    assert sensor.BRUTE_FORCE_PORTS == {21, 22, 23, 3389, 9999}
+    for port in (80, 443, 8080, 25, 3306):
+        for _ in range(50):
+            assert sensor.check_brute_force("6.6.6.6", "10.0.0.5", port) is False
+    assert alerts_log == []
+    for port in (21, 22, 23, 3389, 9999):
+        for _ in range(8):
+            sensor.check_brute_force("6.6.6.6", "10.0.0.5", port)
+    assert [a[3] for a in alerts_log] == [21, 22, 23, 3389, 9999]
+
+
+def test_nmap_100_port_scan_only_triggers_port_scan(sensor, clock, alerts_log):
+    for port in range(1, 101):
+        feed(sensor, tcp("6.6.6.6", "10.0.0.5", port))
+    assert types(alerts_log) == ["PortScan"]
+
+
+def test_dos_suppressed_only_for_flagged_scanner_within_window(sensor, clock, alerts_log):
+    for port in range(1, 101):
+        feed(sensor, tcp("6.6.6.6", "10.0.0.5", port))
+    assert types(alerts_log) == ["PortScan"]
+
+    # Same window: scanner's DoS stays suppressed, unrelated source still alerts
+    clock.advance(2)
+    feed(sensor, tcp("6.6.6.6", "10.0.0.5", 80), 100)
+    feed(sensor, tcp("7.7.7.7", "10.0.0.5", 80), 100)
+    assert [(a[0], a[1]) for a in alerts_log] == [
+        ("PortScan", "6.6.6.6"),
+        ("DoS/SYN Flood", "7.7.7.7"),
+    ]
+
+    # After SCAN_WINDOW expires: original source can trigger DoS again
+    clock.advance(6)
+    feed(sensor, tcp("6.6.6.6", "10.0.0.5", 80), 100)
+    assert [(a[0], a[1]) for a in alerts_log] == [
+        ("PortScan", "6.6.6.6"),
+        ("DoS/SYN Flood", "7.7.7.7"),
+        ("DoS/SYN Flood", "6.6.6.6"),
+    ]
+
+
 def test_icmp_flood_packets(sensor, clock, alerts_log):
     feed(sensor, icmp("6.6.6.6", "10.0.0.5"), 100)
     assert types(alerts_log) == ["ICMP Flood"]
@@ -372,14 +426,39 @@ def test_same_alert_is_logged_once_per_10_seconds(sensor, clock, real_log):
     assert len(real_log) == 3
 
 
-def test_post_alert_sends_the_sensor_key(sensor, monkeypatch):
+def test_post_alert_sends_the_sensor_key(sensor, monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(sensor, "SENSOR_KEY", "secret")
+    monkeypatch.setattr(sensor, "ALERT_QUEUE_FILE", str(tmp_path / "queue.jsonl"))
     monkeypatch.setattr(sensor.urllib.request, "urlopen",
                         lambda req, timeout=0: seen.append(req) or SimpleNamespace(close=lambda: None))
     sensor.post_alert({"type": "DoS"})
-    assert seen[0].get_header("X-service-key") == "secret"
-    assert json.loads(seen[0].data) == {"type": "DoS"}
+    assert seen[0].get_header("X-sensor-key") == "secret"
+    assert json.loads(seen[0].data) == {"alerts": [{"type": "DoS"}]}
+
+
+def test_post_alert_queues_and_flushes_in_order_on_reconnect(sensor, monkeypatch, tmp_path):
+    qfile = tmp_path / "queue.jsonl"
+    monkeypatch.setattr(sensor, "SENSOR_KEY", "secret")
+    monkeypatch.setattr(sensor, "ALERT_QUEUE_FILE", str(qfile))
+
+    def down(*a, **k):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(sensor.urllib.request, "urlopen", down)
+    sensor.post_alert({"type": "PortScan", "src": "10.0.0.1", "seq": 1})
+    sensor.post_alert({"type": "BruteForce", "src": "10.0.0.2", "seq": 2})
+    assert qfile.exists()
+
+    sent_batches = []
+    monkeypatch.setattr(
+        sensor.urllib.request,
+        "urlopen",
+        lambda req, timeout=0: sent_batches.append(json.loads(req.data)) or SimpleNamespace(close=lambda: None),
+    )
+    sent, remaining, _ = sensor.flush_alert_queue(str(qfile))
+    assert sent == 2 and remaining == 0
+    assert [a["seq"] for a in sent_batches[0]["alerts"]] == [1, 2]
 
 
 def test_post_alert_does_nothing_without_a_key(sensor, monkeypatch):

@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api';
+import { consumeNextPath } from '../utils';
 import GoogleButton from '../GoogleButton';
 import AuthShell from '../AuthShell';
+import VerifyEmailStep from '../VerifyEmailStep';
 
 function strength(p) {
   let s = 0;
@@ -12,15 +14,17 @@ function strength(p) {
   if (/[^A-Za-z0-9]/.test(p)) s++;
   return s;
 }
-const COLORS = ['var(--danger)', 'var(--warn)', 'var(--accent-2)', 'var(--accent)'];
+const COLORS = ['var(--danger)', 'var(--high)', 'var(--warn)', 'var(--accent)'];
 const LABELS = ['Weak', 'Fair', 'Good', 'Strong'];
 
 export default function Register() {
   const nav = useNavigate();
+  const location = useLocation();
   const [f, setF] = useState({ username: '', email: '', password: '' });
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [verifyEmail, setVerifyEmail] = useState('');
   const errRef = useRef(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const sc = strength(f.password);
@@ -34,13 +38,21 @@ export default function Register() {
     }
   }, [error]);
 
+  function finishRegisterRedirect() {
+    nav(consumeNextPath(location.search), { replace: true });
+  }
+
   async function submit(e) {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await api('/register', { method: 'POST', body: f });
-      nav('/login');
+      const res = await api('/register', { method: 'POST', body: f });
+      if (res && res.verify) {
+        setVerifyEmail(res.email || f.email.trim().toLowerCase());
+      } else {
+        nav(`/login${location.search || ''}`);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -48,9 +60,22 @@ export default function Register() {
     }
   }
 
+  if (verifyEmail) {
+    return (
+      <VerifyEmailStep
+        email={verifyEmail}
+        onVerified={finishRegisterRedirect}
+        onBack={() => {
+          setVerifyEmail('');
+          setError('');
+        }}
+      />
+    );
+  }
+
   return (
     <AuthShell title="Create your account" sub="Start detecting threats in minutes.">
-      <GoogleButton onSuccess={() => nav('/')} onError={setError} />
+      <GoogleButton onSuccess={finishRegisterRedirect} onError={setError} />
       <div className="au-or">or register with email</div>
       <form onSubmit={submit}>
         <input className="au-input" placeholder="Username" value={f.username}
@@ -97,7 +122,7 @@ export default function Register() {
           {busy ? 'Creating...' : 'Create account'}
         </button>
       </form>
-      <p className="au-foot">Already registered? <Link to="/login">Sign in</Link></p>
+      <p className="au-foot">Already registered? <Link to={`/login${location.search || ''}`}>Sign in</Link></p>
     </AuthShell>
   );
 }

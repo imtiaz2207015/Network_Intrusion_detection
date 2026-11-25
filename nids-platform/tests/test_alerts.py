@@ -102,7 +102,12 @@ def test_heartbeat_validation(alert_client):
 def mails(alerts, monkeypatch):
     sent = []
     monkeypatch.setattr(alerts, "EMAIL_ON", True)
-    monkeypatch.setattr(alerts, "notify_critical", lambda *a: sent.append(a))
+    monkeypatch.setattr(alerts, "get_owner_email", lambda uid: "owner@example.com")
+    monkeypatch.setattr(
+        alerts,
+        "dispatch_mail",
+        lambda to_email, subj, body, html_body=None: sent.append((to_email, subj, body)),
+    )
     return sent
 
 
@@ -116,4 +121,45 @@ def test_critical_alert_sends_one_email_per_source(alert_client, mails):
     ingest(alert_client, type="DoS", src="10.0.0.1")        # muted by the cooldown
     ingest(alert_client, type="DoS", src="10.0.0.2")        # different source
     ingest(alert_client, type="PortScan", src="10.0.0.3")   # not critical
-    assert [m[1] for m in mails] == ["10.0.0.1", "10.0.0.2"]
+    assert len(mails) == 2
+    assert "10.0.0.1" in mails[0][2]
+    assert "10.0.0.2" in mails[1][2]
+
+
+def test_batch_ingest_and_heartbeat_with_x_sensor_key(alert_client, make_token):
+    sensor_hdr = {"X-Sensor-Key": "test-sensor-key"}
+    # Batch ingest
+    r = alert_client.post(
+        "/ingest/alerts",
+        json={"alerts": [
+            {"type": "PortScan", "src": "10.0.0.10", "dst": "10.0.0.5", "dport": "22"},
+            {"type": "BruteForce", "src": "10.0.0.11", "dst": "10.0.0.5", "dport": "22"},
+        ]},
+        headers=sensor_hdr,
+    )
+    assert r.status_code == 201
+    assert r.get_json()["ingested"] == 2
+    # Invalid batch payload rejected
+    assert alert_client.post("/ingest/alerts", json={"alerts": []}, headers=sensor_hdr).status_code == 400
+    assert alert_client.post("/ingest/alerts", json={"alerts": [{"type": "DoS"}]}, headers=sensor_hdr).status_code == 400
+    # Heartbeat via /ingest/heartbeat with X-Sensor-Key
+    hb = alert_client.post("/ingest/heartbeat", json={"host": "pi5", "packets": 42, "uptime": 60}, headers=sensor_hdr)
+    assert hb.status_code == 200 and hb.get_json()["ok"] is True
+    s = alert_client.get("/sensor", headers=hdr(make_token)).get_json()
+    assert s["online"] is True and s["host"] == "pi5" and "last_seen" in s
+
+
+def test_public_ingest_routes_reject_x_service_key(alert_client):
+    # A valid key passed in X-Service-Key (instead of X-Sensor-Key) must be rejected with 401
+    r_alerts = alert_client.post(
+        "/ingest/alerts",
+        json={"alerts": [{"type": "PortScan", "src": "10.0.0.10", "dst": "10.0.0.5", "dport": "22"}]},
+        headers=KEY,
+    )
+    assert r_alerts.status_code == 401
+    r_hb = alert_client.post(
+        "/ingest/heartbeat",
+        json={"host": "pi5", "packets": 10, "uptime": 30},
+        headers=KEY,
+    )
+    assert r_hb.status_code == 401
